@@ -883,7 +883,10 @@ private fun Context.getStoragePair(): Pair<Long, Long> {
                 ?.filter { it.state in listOf(Environment.MEDIA_MOUNTED, Environment.MEDIA_MOUNTED_READ_ONLY) }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 val storageStatsManager = getSystemService<StorageStatsManager>()
-                val volumesUuid = validVolumes?.mapNotNull { it.storageUuid }
+                val volumesUuid = validVolumes?.mapNotNull {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) it.storageUuid
+                    else try { UUID.fromString(it.uuid) } catch (_: Exception) { null }
+                }
                 if (volumesUuid.isNullOrEmpty()) {
                     total += storageStatsManager?.getTotalBytes(StorageManager.UUID_DEFAULT) ?: 0L
                     free += storageStatsManager?.getFreeBytes(StorageManager.UUID_DEFAULT) ?: 0L
