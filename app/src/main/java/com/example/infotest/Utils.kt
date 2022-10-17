@@ -872,7 +872,7 @@ private fun Context.getCalenderList(): List<Calendar> = try {
 }
 
 @Suppress("UNCHECKED_CAST")
-@SuppressLint("UsableSpace")
+@SuppressLint("DiscouragedPrivateApi")
 private fun Context.getStoragePair(): Pair<Long, Long> {
     val storageManager = getSystemService<StorageManager>()
     var total = 0L
@@ -883,9 +883,12 @@ private fun Context.getStoragePair(): Pair<Long, Long> {
                 ?.filter { it.state in listOf(Environment.MEDIA_MOUNTED, Environment.MEDIA_MOUNTED_READ_ONLY) }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 val storageStatsManager = getSystemService<StorageStatsManager>()
-                val volumesUuid = validVolumes?.mapNotNull {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) it.storageUuid
-                    else try { UUID.fromString(it.uuid) } catch (_: Exception) { null }
+                val volumesUuid = validVolumes?.mapNotNull { volume ->
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) volume.storageUuid
+                    else try {
+                        volume.directory?.let { storageManager.getUuidForPath(it) } ?: volume.uuid.toUUIDorNull()
+                    }
+                    catch (_: Exception) { volume.uuid.toUUIDorNull() }
                 }
                 if (volumesUuid.isNullOrEmpty()) {
                     total += storageStatsManager?.getTotalBytes(StorageManager.UUID_DEFAULT) ?: 0L
@@ -898,60 +901,6 @@ private fun Context.getStoragePair(): Pair<Long, Long> {
                 total += it?.directory?.totalSpace ?: 0L
                 free += it?.directory?.freeSpace ?: 0L
             }
-            /*val getVolumes =
-                StorageManager::class.java.getDeclaredMethod("getVolumes") //6.0
-            val getVolumeInfo =
-                getVolumes.invoke(storageManager) as? List<Any?>
-            var used = 0L
-            getVolumeInfo?.forEach {
-                val getType = it?.javaClass?.getField("type")
-                when (getType?.getInt(it)) {
-                    1 -> {//TYPE_PRIVATE
-                        var totalByte = 0L
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            val getFsUuid =
-                                it.javaClass.getDeclaredMethod("getFsUuid")
-                            val fsUuid = if (getFsUuid.invoke(it) != null && getFsUuid.invoke(it) is String)
-                                UUID.fromString(getFsUuid.invoke(it) as String)
-                            else StorageManager.UUID_DEFAULT
-                            totalByte = getSystemService<StorageStatsManager>()?.getTotalBytes(fsUuid) ?: -1
-                        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
-                            val getPrimaryStorageSize =
-                                StorageManager::class.java.getMethod("getPrimaryStorageSize") //5.0 6.0 7.0没有
-                            totalByte = getPrimaryStorageSize.invoke(storageManager) as Long
-                        }
-                        val isMountedReadable =
-                            it.javaClass.getDeclaredMethod("isMountedReadable")
-                        val readable =
-                            isMountedReadable.invoke(it) as Boolean
-                        if (readable) {
-                            val file =
-                                it.javaClass.getDeclaredMethod("getPath")
-                            val f = file.invoke(it) as File
-                            if (totalByte == 0L) {
-                                totalByte = f.totalSpace
-                            }
-                            used += totalByte - f.freeSpace
-                            total += totalByte
-                        }
-                    }
-                    0 -> {//TYPE_PUBLIC
-                        val isMountedReadable =
-                            it.javaClass.getDeclaredMethod("isMountedReadable")
-                        val readable =
-                            isMountedReadable.invoke(it) as Boolean
-                        if (readable) {
-                            val file =
-                                it.javaClass.getDeclaredMethod("getPath")
-                            val f = file.invoke(it) as File
-                            used += f.totalSpace - f.freeSpace
-                            total += f.totalSpace
-                        }
-                    }
-                    else -> Unit
-                }
-            }
-            free = total - used*/
         } catch (e: Exception) {
             StatFs(Environment.getExternalStorageDirectory().path).let {
                 total = it.blockCountLong * it.blockSizeLong
@@ -966,7 +915,7 @@ private fun Context.getStoragePair(): Pair<Long, Long> {
                 val getPathFile = it?.javaClass?.getDeclaredMethod("getPathFile")
                 val file = getPathFile?.invoke(it) as File
                 total += file.totalSpace
-                free += file.usableSpace
+                free += file.freeSpace
             }
         } catch (e: Exception) {
             StatFs(Environment.getExternalStorageDirectory().path).let {
@@ -977,6 +926,10 @@ private fun Context.getStoragePair(): Pair<Long, Long> {
     }
     return total to free
 }
+
+private fun String?.toUUIDorNull() = try {
+    UUID.fromString(this)
+} catch (_: Exception) { null }
 
 @Throws(IOException::class)
 private fun InputStream.toExifInterface(): ExifInterface? = try {
@@ -992,9 +945,7 @@ private fun getBatteryCapacityByHook(): Double = try {
         it.getMethod("getBatteryCapacity")
             .invoke(it.getConstructor(Context::class.java).newInstance(appCtx)) as Double
     }
-} catch (e: Exception) {
-    0.0
-}
+} catch (e: Exception) { 0.0 }
 
 private fun ByteArray?.formatMac(): String = try {
     takeIf { this?.size == 6 }?.joinToString(separator = ":") {

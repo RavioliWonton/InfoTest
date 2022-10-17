@@ -87,11 +87,9 @@ class MainActivity : ComponentActivity() {
         object : LocationListenerCompat {
             override fun onLocationChanged(location: Location) {
                 //Log.d("TAG", "LocationData :$location")
-                GlobalApplication.gps = GPS(
-                    location.latitude.toString(),
+                GlobalApplication.gps = GPS(location.latitude.toString(),
                     location.longitude.toString(),
-                    LocationCompat.getElapsedRealtimeNanos(location)
-                )
+                    LocationCompat.getElapsedRealtimeNanos(location))
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
                     Geocoder(this@MainActivity).getFromLocation(location.latitude, location.longitude, 1) {
                         GlobalApplication.address = it.firstOrNull()
@@ -111,11 +109,9 @@ class MainActivity : ComponentActivity() {
                 result.locations.maxWithOrNull(compareBy { LocationCompat.getElapsedRealtimeNanos(it) })
                     ?.let { location ->
                         //Log.d("TAG", "LocationData :${location.toString()}")
-                        GlobalApplication.gps = GPS(
-                            location.latitude.toString(),
+                        GlobalApplication.gps = GPS(location.latitude.toString(),
                             location.longitude.toString(),
-                            LocationCompat.getElapsedRealtimeNanos(location)
-                        )
+                            LocationCompat.getElapsedRealtimeNanos(location))
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
                             Geocoder(this@MainActivity).getFromLocation(location.latitude, location.longitude, 1) {
                                 GlobalApplication.address = it.firstOrNull()
@@ -133,7 +129,8 @@ class MainActivity : ComponentActivity() {
 
         override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
             super.onLinkPropertiesChanged(network, linkProperties)
-            if (getSystemService<ConnectivityManager>()?.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true)
+            if (getSystemService<ConnectivityManager>()?.getNetworkCapabilities(network)
+                    ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true)
                 GlobalApplication.currentWifiLinkProperties = linkProperties
         }
     }
@@ -220,16 +217,15 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
-                    locationServices.requestLocationUpdates(LocationRequest.create(), Dispatchers.IO.asExecutor(), callback)
+                    locationServices.requestLocationUpdates(LocationRequest.Builder(5000L).build(),
+                        Dispatchers.IO.asExecutor(), callback)
                 }
                 if (it.getProviders(true).contains(LocationManager.GPS_PROVIDER)) {
                     LocationManagerCompat.getCurrentLocation(it, LocationManager.GPS_PROVIDER, null, Dispatchers.IO.asExecutor()) { gpsLastKnown ->
                         if (gpsLastKnown != null && (GlobalApplication.gps?.time ?: -1L) < LocationCompat.getElapsedRealtimeNanos(gpsLastKnown)) {
-                            GlobalApplication.gps = GPS(
-                                gpsLastKnown.latitude.toString(),
+                            GlobalApplication.gps = GPS(gpsLastKnown.latitude.toString(),
                                 gpsLastKnown.longitude.toString(),
-                                LocationCompat.getElapsedRealtimeNanos(gpsLastKnown)
-                            )
+                                LocationCompat.getElapsedRealtimeNanos(gpsLastKnown))
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
                                 Geocoder(this@MainActivity).getFromLocation(gpsLastKnown.latitude, gpsLastKnown.longitude, 1) { list ->
                                     GlobalApplication.address = list.firstOrNull()
@@ -245,18 +241,15 @@ class MainActivity : ComponentActivity() {
                         )*/
                     LocationManagerCompat.requestLocationUpdates(it, LocationManager.GPS_PROVIDER,
                         LocationRequestCompat.Builder(5000L).build(),
-                        Dispatchers.IO.asExecutor(), listener
-                    )
+                        Dispatchers.IO.asExecutor(), listener)
                     //it.requestLocationUpdates(LocationManager.GPS_PROVIDER, 5000L, 0f, listener)
                 }
                  else if (it.getProviders(true).contains(LocationManager.NETWORK_PROVIDER)) {
                     LocationManagerCompat.getCurrentLocation(it, LocationManager.NETWORK_PROVIDER, null, Dispatchers.IO.asExecutor()) { networkLastKnown ->
                         if (networkLastKnown != null && (GlobalApplication.gps?.time ?: -1L) < LocationCompat.getElapsedRealtimeNanos(networkLastKnown)) {
-                            GlobalApplication.gps = GPS(
-                                    networkLastKnown.latitude.toString(),
-                                    networkLastKnown.longitude.toString(),
-                                    LocationCompat.getElapsedRealtimeNanos(networkLastKnown)
-                                )
+                            GlobalApplication.gps = GPS(networkLastKnown.latitude.toString(),
+                                networkLastKnown.longitude.toString(),
+                                LocationCompat.getElapsedRealtimeNanos(networkLastKnown))
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
                                 Geocoder(this@MainActivity).getFromLocation(networkLastKnown.latitude, networkLastKnown.longitude, 1) { list ->
                                     GlobalApplication.address = list.firstOrNull()
@@ -272,8 +265,7 @@ class MainActivity : ComponentActivity() {
                         )*/
                     LocationManagerCompat.requestLocationUpdates(it, LocationManager.NETWORK_PROVIDER,
                         LocationRequestCompat.Builder(5000L).build(),
-                        Dispatchers.IO.asExecutor(), listener
-                    )
+                        Dispatchers.IO.asExecutor(), listener)
                     //it.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 5000L, 0f, listener)
                 }
                 else Unit
