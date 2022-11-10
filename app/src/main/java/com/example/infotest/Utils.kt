@@ -17,7 +17,6 @@ import android.hardware.Sensor
 import android.hardware.SensorManager
 import android.location.Geocoder
 import android.net.*
-import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.os.*
 import android.os.storage.StorageManager
@@ -38,7 +37,6 @@ import androidx.core.database.getStringOrNull
 import androidx.core.os.ConfigurationCompat
 import androidx.core.telephony.SubscriptionManagerCompat
 import androidx.core.telephony.TelephonyManagerCompat
-import androidx.core.util.ObjectsCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.exifinterface.media.ExifInterface
@@ -54,11 +52,16 @@ import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.net.URL
 import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.Paths
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.*
+import kotlin.io.path.bufferedWriter
+import kotlin.io.path.exists
 import kotlin.math.hypot
 import kotlin.system.exitProcess
 import kotlin.time.Duration.Companion.seconds
@@ -118,10 +121,17 @@ fun String?.saveFileToDownload(fileName: String, contentResolver: ContentResolve
             model.put(MediaStore.Downloads.IS_PENDING, 0)
             contentResolver.update(uri, model, null, null)
         }
-    } else File(Environment.getExternalStoragePublicDirectory(
-        Environment.DIRECTORY_DOWNLOADS).absolutePath, fileName).bufferedWriter().use {
-        it.write(this.orEmpty())
-    }
+    } else /*File(Environment.getExternalStoragePublicDirectory(
+        Environment.DIRECTORY_DOWNLOADS).absolutePath, fileName)*/
+        Files.createFile(
+            Paths.get(
+                Environment.getExternalStoragePublicDirectory(
+                    Environment.DIRECTORY_DOWNLOADS
+                ).absolutePath, fileName
+            )
+        ).bufferedWriter().use {
+            it.write(this.orEmpty())
+        }
 }
 
 suspend fun ComponentActivity.createExtensionModel() = ExtensionModel(
@@ -194,9 +204,11 @@ private fun Activity.getDeviceInfo(): DeviceInfo {
         createTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")),
         downloadFiles = try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
-                countContent(MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
-                    MediaStore.Downloads.getContentUri(MediaStore.VOLUME_INTERNAL))
-            else Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)?.listFiles()?.size ?: 0
+                countContent(
+                    MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
+                    MediaStore.Downloads.getContentUri(MediaStore.VOLUME_INTERNAL)
+                )
+            else Paths.get(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).absolutePath).nameCount
         } catch (e: Exception) { 0 },
         imagesExternal = countContent(imageExternalUri),
         imagesInternal = countContent(imageInternalUri),
@@ -687,23 +699,33 @@ private fun Context.getOtherData(): OtherData = OtherData(
                     Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && it is CellInfoNr -> it.cellSignalStrength
                     else -> null
                 })?.dbm
-            }?.lastOrNull { it != if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) CellInfo.UNAVAILABLE else Int.MIN_VALUE } ?: -1).toString()
-        } catch (e: Exception) { "-1" },
+            }
+                ?.lastOrNull { it != if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) CellInfo.UNAVAILABLE else Int.MIN_VALUE }
+                ?: -1).toString()
+    } catch (e: Exception) {
+        "-1"
+    },
     keyboard = try {
         InputDevice.getDeviceIds().map { InputDevice.getDevice(it) }
             .firstOrNull { !it.isVirtual }?.keyboardType ?: 0
-    } catch (e: Exception) { 0 },
-    lastBootTime = (System.currentTimeMillis() - SystemClock.elapsedRealtimeNanos() / 1000000L).toString(),
+    } catch (e: Exception) {
+        0
+    },
+    lastBootTime = (Instant.now()
+        .toEpochMilli() - SystemClock.elapsedRealtimeNanos() / 1000000L).toString(),
     isRoot = getIsRooted(),
     isSimulator = getIsSimulator()
 )
 
 private fun Context.getIsRooted() = try {
     val value1 = (Build.TAGS != null) && Build.TAGS.contains("test-keys")
-    val value2 = arrayOf("/system/bin/", "/system/xbin/", "/sbin/", "/system/sd/xbin/",
+    val value2 = arrayOf(
+        "/system/bin/", "/system/xbin/", "/sbin/", "/system/sd/xbin/",
         "/system/bin/failsafe/", "/data/local/xbin/", "/data/local/bin/",
         "/data/local/", "/system/sbin/", "/usr/bin/", "/vendor/bin/"
-    ).any { File(it, "su").exists() } || File("/system/app/Superuser.apk").exists()
+    ).any {
+        Paths.get(it, "su").exists(LinkOption.NOFOLLOW_LINKS)
+    } || Paths.get("/system/app/Superuser.apk").exists(LinkOption.NOFOLLOW_LINKS)
     val value3 = try {
         val process = Runtime.getRuntime().exec(arrayOf("/system/xbin/which", "su"))
         process.inputStream.use {
@@ -780,6 +802,7 @@ private fun Context.getAddressBook(): List<Contact> = try { mutableListOf<Contac
     emptyList()
 }
 
+@SuppressLint("QueryPermissionsNeeded")
 private fun Context.getAppList(): List<App> = try {
     (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
         packageManager.getInstalledPackages(PackageManager.PackageInfoFlags.of(PackageManager.MATCH_UNINSTALLED_PACKAGES.toLong()))
@@ -790,7 +813,7 @@ private fun Context.getAppList(): List<App> = try {
             versionCode = PackageInfoCompat.getLongVersionCode(it).toString(),
             obtainTime = Instant.now().epochSecond,
             appType = (it.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM != 0 ||
-                it.applicationInfo.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP == 0).toInt()?.toString() ?: "0",
+                    it.applicationInfo.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP == 0).toInt()?.toString() ?: "0",
             installTime = it.firstInstallTime,
             updateTime = it.lastUpdateTime,
             appVersion = it.versionName.orEmpty()
