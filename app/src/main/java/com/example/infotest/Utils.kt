@@ -1,4 +1,4 @@
-@file:Suppress("PrivateApi", "ObsoleteSdkInt", "MissingPermission", "HardwareIds", "NewApi")
+@file:Suppress("PrivateApi", "ObsoleteSdkInt", "MissingPermission", "HardwareIds", "NewApi", "DEPRECATION")
 @file:OptIn(DelicateCoroutinesApi::class)
 
 package com.example.infotest
@@ -52,16 +52,11 @@ import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.net.URL
 import java.nio.charset.StandardCharsets
-import java.nio.file.Files
-import java.nio.file.LinkOption
-import java.nio.file.Paths
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.*
-import kotlin.io.path.bufferedWriter
-import kotlin.io.path.exists
 import kotlin.math.hypot
 import kotlin.system.exitProcess
 import kotlin.time.Duration.Companion.seconds
@@ -99,6 +94,7 @@ inline fun Context.startActionCompat(
 }
 
 val extensionCreationContext = GlobalScope.coroutineContext + Dispatchers.IO + CoroutineExceptionHandler { _, t ->
+    if (GlobalApplication.isDebug) t.printStackTrace()
     MainActivity.text = "抓取数据错误，错误信息已经保存在Download文件夹，程序将在五秒后退出"
     GlobalScope.launch(Dispatchers.IO) {
         t.stackTraceToString().saveFileToDownload("modelError-${LocalDateTime.now()}.txt")
@@ -114,24 +110,19 @@ fun String?.saveFileToDownload(fileName: String, contentResolver: ContentResolve
             put(MediaStore.Downloads.IS_PENDING, 1)
         }
         contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, model)?.let { uri ->
-            contentResolver.openOutputStream(uri)?.bufferedWriter()?.use {
-                it.write(this.orEmpty())
+            contentResolver.openOutputStream(uri)?.use {
+                it.bufferedWriter().write(this.orEmpty())
             }
             model.clear()
             model.put(MediaStore.Downloads.IS_PENDING, 0)
             contentResolver.update(uri, model, null, null)
         }
-    } else /*File(Environment.getExternalStoragePublicDirectory(
-        Environment.DIRECTORY_DOWNLOADS).absolutePath, fileName)*/
-        Files.createFile(
-            Paths.get(
-                Environment.getExternalStoragePublicDirectory(
-                    Environment.DIRECTORY_DOWNLOADS
-                ).absolutePath, fileName
-            )
-        ).bufferedWriter().use {
-            it.write(this.orEmpty())
-        }
+    } else File(Environment.getExternalStoragePublicDirectory(
+        Environment.DIRECTORY_DOWNLOADS).absolutePath, fileName)
+        /*Files.createFile(Paths.get(Environment.getExternalStoragePublicDirectory(
+            Environment.DIRECTORY_DOWNLOADS).absolutePath, fileName))*/.bufferedWriter().use {
+        it.write(this.orEmpty())
+    }
 }
 
 suspend fun ComponentActivity.createExtensionModel() = ExtensionModel(
@@ -204,11 +195,9 @@ private fun Activity.getDeviceInfo(): DeviceInfo {
         createTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")),
         downloadFiles = try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
-                countContent(
-                    MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
-                    MediaStore.Downloads.getContentUri(MediaStore.VOLUME_INTERNAL)
-                )
-            else Paths.get(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).absolutePath).nameCount
+                countContent(MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
+                    MediaStore.Downloads.getContentUri(MediaStore.VOLUME_INTERNAL))
+            else Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).length().toInt() /*Paths.get(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).absolutePath).count()*/
         } catch (e: Exception) { 0 },
         imagesExternal = countContent(imageExternalUri),
         imagesInternal = countContent(imageInternalUri),
@@ -299,7 +288,7 @@ private fun Activity.getDeviceInfo(): DeviceInfo {
 }
 
 private fun Context.getSDCardPair(): Pair<String, String> = try {
-    getSDCardInfo().firstOrNull { it.isRemovable && File(it.path).exists() }?.path?.let {
+    getSDCardInfo().firstOrNull { it.isRemovable && File(it.path).exists()/*Files.exists(Paths.get(it.path))*/ }?.path?.let {
         val stat = StatFs(it)
         /*Formatter.formatFileSize(this, */(stat.blockSizeLong * stat.blockCountLong).toString()/*)*/ to
             /*Formatter.formatFileSize(this,*/ (stat.blockSizeLong * stat.availableBlocksLong).toString()
@@ -501,9 +490,15 @@ private fun Context.getGeneralData(): GeneralData {
                     (System.getProperty("http.proxyPort")?.toInt() ?: -1) != -1)).toString()
         } catch (e: Exception) { false.toString() },
         isUsingVpn = try {
-            NetworkInterface.getNetworkInterfaces().asSequence()
+            (NetworkInterface.getNetworkInterfaces().asSequence()
                 .filter { it?.isUp == true && it.interfaceAddresses.isNotEmpty() }
-                .any { listOf("tun0", "ppp0").contains(it.name) }.toString()
+                .any { listOf("tun", "ppp", "pptp").contains(it.name) } ||
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N)
+                connectivityManager?.getNetworkCapabilities(connectivityManager.activeNetwork)
+                    ?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true else
+                connectivityManager?.allNetworks?.mapNotNull {
+                    connectivityManager.getNetworkCapabilities(it)
+                }?.any { it.hasTransport(NetworkCapabilities.TRANSPORT_VPN) } == true).toString()
         } catch (e: Exception) { false.toString() },
         language = locale?.language.orEmpty(),
         localeDisplayLanguage = locale?.displayLanguage.orEmpty(),
@@ -699,33 +694,23 @@ private fun Context.getOtherData(): OtherData = OtherData(
                     Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && it is CellInfoNr -> it.cellSignalStrength
                     else -> null
                 })?.dbm
-            }
-                ?.lastOrNull { it != if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) CellInfo.UNAVAILABLE else Int.MIN_VALUE }
-                ?: -1).toString()
-    } catch (e: Exception) {
-        "-1"
-    },
+            }?.lastOrNull { it != if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) CellInfo.UNAVAILABLE else Int.MIN_VALUE } ?: -1).toString()
+        } catch (e: Exception) { "-1" },
     keyboard = try {
         InputDevice.getDeviceIds().map { InputDevice.getDevice(it) }
             .firstOrNull { !it.isVirtual }?.keyboardType ?: 0
-    } catch (e: Exception) {
-        0
-    },
-    lastBootTime = (Instant.now()
-        .toEpochMilli() - SystemClock.elapsedRealtimeNanos() / 1000000L).toString(),
+    } catch (e: Exception) { 0 },
+    lastBootTime = (Instant.now().toEpochMilli() - SystemClock.elapsedRealtimeNanos() / 1000000L).toString(),
     isRoot = getIsRooted(),
     isSimulator = getIsSimulator()
 )
 
 private fun Context.getIsRooted() = try {
     val value1 = (Build.TAGS != null) && Build.TAGS.contains("test-keys")
-    val value2 = arrayOf(
-        "/system/bin/", "/system/xbin/", "/sbin/", "/system/sd/xbin/",
+    val value2 = arrayOf("/system/bin/", "/system/xbin/", "/sbin/", "/system/sd/xbin/",
         "/system/bin/failsafe/", "/data/local/xbin/", "/data/local/bin/",
         "/data/local/", "/system/sbin/", "/usr/bin/", "/vendor/bin/"
-    ).any {
-        Paths.get(it, "su").exists(LinkOption.NOFOLLOW_LINKS)
-    } || Paths.get("/system/app/Superuser.apk").exists(LinkOption.NOFOLLOW_LINKS)
+    ).any { File(it, "su").exists()/*Paths.get(it, "su").exists(LinkOption.NOFOLLOW_LINKS)*/ } || File("/system/app/Superuser.apk").exists()/*Paths.get("/system/app/Superuser.apk").exists(LinkOption.NOFOLLOW_LINKS)*/
     val value3 = try {
         val process = Runtime.getRuntime().exec(arrayOf("/system/xbin/which", "su"))
         process.inputStream.use {
@@ -813,7 +798,7 @@ private fun Context.getAppList(): List<App> = try {
             versionCode = PackageInfoCompat.getLongVersionCode(it).toString(),
             obtainTime = Instant.now().epochSecond,
             appType = (it.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM != 0 ||
-                    it.applicationInfo.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP == 0).toInt()?.toString() ?: "0",
+                it.applicationInfo.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP == 0).toInt()?.toString() ?: "0",
             installTime = it.firstInstallTime,
             updateTime = it.lastUpdateTime,
             appVersion = it.versionName.orEmpty()
@@ -909,7 +894,7 @@ private fun Context.getStoragePair(): Pair<Long, Long> {
                 val volumesUuid = validVolumes?.mapNotNull { volume ->
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) volume.storageUuid
                     else try {
-                        volume.directory?.let { storageManager.getUuidForPath(it) } ?: volume.uuid.toUUIDorNull()
+                        volume.directoryCompat?.let { storageManager.getUuidForPath(it) } ?: volume.uuid.toUUIDorNull()
                     }
                     catch (_: Exception) { volume.uuid.toUUIDorNull() }
                 }
@@ -921,8 +906,8 @@ private fun Context.getStoragePair(): Pair<Long, Long> {
                     free += storageStatsManager?.getFreeBytes(it) ?: 0L
                 }
             } else validVolumes?.forEach {
-                total += it?.directory?.totalSpace ?: 0L
-                free += it?.directory?.freeSpace ?: 0L
+                total += it?.directoryCompat?.totalSpace ?: 0L
+                free += it?.directoryCompat?.freeSpace ?: 0L
             }
         } catch (e: Exception) {
             StatFs(Environment.getExternalStorageDirectory().path).let {
@@ -935,10 +920,8 @@ private fun Context.getStoragePair(): Pair<Long, Long> {
             val getVolumeList = StorageManager::class.java.getDeclaredMethod("getVolumeList")
             val volumeList = getVolumeList.invoke(storageManager) as? Array<StorageVolume?>
             volumeList?.forEach {
-                val getPathFile = it?.javaClass?.getDeclaredMethod("getPathFile")
-                val file = getPathFile?.invoke(it) as File
-                total += file.totalSpace
-                free += file.freeSpace
+                total += it?.directoryCompat?.totalSpace ?: 0
+                free += it?.directoryCompat?.usableSpace ?: 0
             }
         } catch (e: Exception) {
             StatFs(Environment.getExternalStorageDirectory().path).let {
@@ -954,6 +937,13 @@ private fun String?.toUUIDorNull() = try {
     UUID.fromString(this)
 } catch (_: Exception) { null }
 
+private val StorageVolume.directoryCompat: File?
+    get() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) this.directory
+    else try {
+        val getPathMethod = this.javaClass.getDeclaredMethod("getPath")
+        File(getPathMethod.invoke(this) as String)/*Files.getFileStore(Paths.get(getPathFile?.invoke(it) as String))*/
+    } catch (_: Exception) { null }
+
 @Throws(IOException::class)
 private fun InputStream.toExifInterface(): ExifInterface? = try {
     ExifInterface(this)
@@ -966,7 +956,7 @@ private fun InputStream.toExifInterface(): ExifInterface? = try {
 private fun getBatteryCapacityByHook(): Double = try {
     Class.forName("com.android.internal.os.PowerProfile").let {
         it.getMethod("getBatteryCapacity")
-            .invoke(it.getConstructor(Context::class.java).newInstance(appCtx)) as Double
+            .invoke(it.getDeclaredConstructor(Context::class.java).newInstance(appCtx)) as Double
     }
 } catch (e: Exception) { 0.0 }
 
