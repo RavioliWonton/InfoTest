@@ -36,6 +36,7 @@ class GlobalApplication: Application() {
         }
     }
 
+    @Suppress("DEPRECATION")
     companion object {
         private val mmkv by lazy { MMKV.defaultMMKV(MMKV.MULTI_PROCESS_MODE, null) }
         val appVersion by lazy { PackageInfoCompat.getLongVersionCode(

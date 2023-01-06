@@ -18,6 +18,7 @@ import android.provider.Settings
 import android.telephony.*
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,6 +32,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.core.app.ActivityCompat
 import androidx.core.content.getSystemService
@@ -39,10 +41,12 @@ import androidx.core.location.LocationListenerCompat
 import androidx.core.location.LocationManagerCompat
 import androidx.core.location.LocationRequestCompat
 import androidx.core.os.HandlerCompat
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import com.example.infotest.ui.theme.InfoTestTheme
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
+import com.google.accompanist.systemuicontroller.rememberSystemUiController
 import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
@@ -53,7 +57,6 @@ import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.Instant
-import java.time.LocalDateTime
 import kotlin.time.Duration.Companion.seconds
 
 class MainActivity : ComponentActivity() {
@@ -130,7 +133,11 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalPermissionsApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent {
+            val systemUiController = rememberSystemUiController()
+            systemUiController.setSystemBarsColor(Color.Transparent, darkIcons = isSystemInDarkTheme().not())
+
             InfoTestTheme {
                 // A surface container using the 'background' color from the theme
                 Surface(
@@ -155,6 +162,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    @Suppress("DEPRECATION")
     @SuppressLint("MissingPermission")
     private fun startFetch() {
         if (!isStartingFetch) {
@@ -186,7 +194,9 @@ class MainActivity : ComponentActivity() {
             }
             getSystemService<ConnectivityManager>()?.let {
                 val request = NetworkRequest.Builder()
-                    .addTransportType(NetworkCapabilities.TRANSPORT_WIFI).build()
+                    .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                    .apply { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) setIncludeOtherUidNetworks(true) }
+                    .build()
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
                     it.registerBestMatchingNetworkCallback(request, wifiCallback, HandlerCompat.createAsync(Looper.myLooper() ?: Looper.getMainLooper()))
                 else it.registerNetworkCallback(request, wifiCallback)
@@ -269,7 +279,7 @@ class MainActivity : ComponentActivity() {
                 delay(5.seconds)
                 text = "正在抓取……"
                 createExtensionModel().toJson()
-                    .saveFileToDownload("model-${LocalDateTime.now()}.txt", contentResolver)
+                    .saveFileToDownload("model-${Instant.now().toEpochMilli()}.txt", contentResolver)
                 text = "抓取完成！信息已经保存在Download文件夹，程序将在五秒钟之内关闭"
                 delay(5.seconds)
                 ActivityCompat.finishAffinity(this@MainActivity)

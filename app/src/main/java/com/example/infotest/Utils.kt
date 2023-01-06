@@ -97,7 +97,7 @@ val extensionCreationContext = GlobalScope.coroutineContext + Dispatchers.IO + C
     if (GlobalApplication.isDebug) t.printStackTrace()
     MainActivity.text = "抓取数据错误，错误信息已经保存在Download文件夹，程序将在五秒后退出"
     GlobalScope.launch(Dispatchers.IO) {
-        t.stackTraceToString().saveFileToDownload("modelError-${LocalDateTime.now()}.txt")
+        t.stackTraceToString().saveFileToDownload("modelError-${Instant.now().toEpochMilli()}.txt")
         delay(5.seconds)
         exitProcess(0)
     }
@@ -288,7 +288,8 @@ private fun Activity.getDeviceInfo(): DeviceInfo {
 }
 
 private fun Context.getSDCardPair(): Pair<String, String> = try {
-    getSDCardInfo().firstOrNull { it.isRemovable && File(it.path).exists()/*Files.exists(Paths.get(it.path))*/ }?.path?.let {
+    getSDCardInfo().firstOrNull { it.isRemovable && it.state in listOf(Environment.MEDIA_MOUNTED, Environment.MEDIA_MOUNTED_READ_ONLY)
+            && File(it.path).exists()/*Files.exists(Paths.get(it.path))*/ }?.path?.let {
         val stat = StatFs(it)
         /*Formatter.formatFileSize(this, */(stat.blockSizeLong * stat.blockCountLong).toString()/*)*/ to
             /*Formatter.formatFileSize(this,*/ (stat.blockSizeLong * stat.availableBlocksLong).toString()
@@ -302,9 +303,7 @@ private fun Context.getSDCardInfo() = mutableListOf<SDCardInfo>().apply {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
         try {
             addAll(sm?.storageVolumes?.mapNotNull {
-                SDCardInfo(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
-                    it.directory?.absolutePath.orEmpty()
-                else StorageVolume::class.java.getMethod("getPath").invoke(it) as String, it.state, it.isRemovable)
+                SDCardInfo(it.directoryCompat?.absolutePath.orEmpty(), it.state, it.isRemovable)
             } ?: emptyList())
         } catch (_: Exception) { }
     } else {
@@ -879,13 +878,12 @@ private fun Context.getCalenderList(): List<Calendar> = try {
     emptyList()
 }
 
-@Suppress("UNCHECKED_CAST")
 @SuppressLint("DiscouragedPrivateApi")
 private fun Context.getStoragePair(): Pair<Long, Long> {
     val storageManager = getSystemService<StorageManager>()
     var total = 0L
     var free = 0L
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
         try {
             val validVolumes = storageManager?.storageVolumes
                 ?.filter { it.state in listOf(Environment.MEDIA_MOUNTED, Environment.MEDIA_MOUNTED_READ_ONLY) }
@@ -917,11 +915,15 @@ private fun Context.getStoragePair(): Pair<Long, Long> {
         }
     } else {
         try {
+            val volumeClazz = Class.forName("android.os.storage.StorageVolume")
+            val getPathMethod = volumeClazz.getDeclaredMethod("getPath")
             val getVolumeList = StorageManager::class.java.getDeclaredMethod("getVolumeList")
-            val volumeList = getVolumeList.invoke(storageManager) as? Array<StorageVolume?>
-            volumeList?.forEach {
-                total += it?.directoryCompat?.totalSpace ?: 0
-                free += it?.directoryCompat?.usableSpace ?: 0
+            getVolumeList.invoke(storageManager)?.let {
+                for (i in 0 until java.lang.reflect.Array.getLength(it)) {
+                    val volumeFile = File(getPathMethod.invoke(java.lang.reflect.Array.get(it, i)) as String)
+                    total += volumeFile.totalSpace
+                    free += volumeFile.usableSpace
+                }
             }
         } catch (e: Exception) {
             StatFs(Environment.getExternalStorageDirectory().path).let {
@@ -938,11 +940,12 @@ private fun String?.toUUIDorNull() = try {
 } catch (_: Exception) { null }
 
 private val StorageVolume.directoryCompat: File?
-    get() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) this.directory
-    else try {
-        val getPathMethod = this.javaClass.getDeclaredMethod("getPath")
-        File(getPathMethod.invoke(this) as String)/*Files.getFileStore(Paths.get(getPathFile?.invoke(it) as String))*/
-    } catch (_: Exception) { null }
+    @SuppressLint("DiscouragedPrivateApi")
+    get() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) directory
+        else try {
+            val getPathMethod = javaClass.getDeclaredMethod("getPath")
+            File(getPathMethod.invoke(this) as String)/*Files.getFileStore(Paths.get(getPathFile?.invoke(it) as String))*/
+        } catch (_: Exception) { null }
 
 @Throws(IOException::class)
 private fun InputStream.toExifInterface(): ExifInterface? = try {
