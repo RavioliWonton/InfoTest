@@ -1,5 +1,5 @@
 @file:Suppress("PrivateApi", "ObsoleteSdkInt", "MissingPermission", "HardwareIds", "NewApi", "DEPRECATION")
-@file:OptIn(DelicateCoroutinesApi::class)
+@file:OptIn(DelicateCoroutinesApi::class, ExperimentalPathApi::class)
 
 package com.example.infotest
 
@@ -16,6 +16,7 @@ import android.graphics.Rect
 import android.hardware.Sensor
 import android.hardware.SensorManager
 import android.location.Geocoder
+import android.media.MediaDrm
 import android.net.*
 import android.net.wifi.WifiManager
 import android.os.*
@@ -43,7 +44,9 @@ import androidx.exifinterface.media.ExifInterface
 import androidx.window.layout.WindowMetricsCalculator
 import com.squareup.moshi.Moshi
 import kotlinx.coroutines.*
+import kotlinx.parcelize.Parceler
 import kotlinx.parcelize.Parcelize
+import kotlinx.parcelize.TypeParceler
 import splitties.init.appCtx
 import java.io.File
 import java.io.IOException
@@ -52,11 +55,25 @@ import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.net.URL
 import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.Path
+import java.nio.file.Paths
+import java.nio.file.StandardOpenOption
+import java.security.MessageDigest
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.*
+import kotlin.io.path.ExperimentalPathApi
+import kotlin.io.path.PathWalkOption
+import kotlin.io.path.absolutePathString
+import kotlin.io.path.bufferedWriter
+import kotlin.io.path.exists
+import kotlin.io.path.fileStore
+import kotlin.io.path.inputStream
+import kotlin.io.path.walk
 import kotlin.math.hypot
 import kotlin.system.exitProcess
 import kotlin.time.Duration.Companion.seconds
@@ -112,16 +129,18 @@ fun String?.saveFileToDownload(fileName: String, contentResolver: ContentResolve
         contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, model)?.let { uri ->
             contentResolver.openOutputStream(uri)?.use {
                 it.bufferedWriter().write(this.orEmpty())
+                (it as ParcelFileDescriptor.AutoCloseOutputStream).fd.sync()
             }
             model.clear()
             model.put(MediaStore.Downloads.IS_PENDING, 0)
             contentResolver.update(uri, model, null, null)
         }
-    } else File(Environment.getExternalStoragePublicDirectory(
-        Environment.DIRECTORY_DOWNLOADS).absolutePath, fileName)
-        /*Files.createFile(Paths.get(Environment.getExternalStoragePublicDirectory(
-            Environment.DIRECTORY_DOWNLOADS).absolutePath, fileName))*/.bufferedWriter().use {
-        it.write(this.orEmpty())
+    } else /*File(Environment.getExternalStoragePublicDirectory(
+        Environment.DIRECTORY_DOWNLOADS).absolutePath, fileName)*/
+        Files.createFile(Paths.get(Environment.getExternalStoragePublicDirectory(
+            Environment.DIRECTORY_DOWNLOADS).absolutePath, fileName)).bufferedWriter().use {
+            it.write(this.orEmpty())
+            it.flush()
     }
 }
 
@@ -197,7 +216,9 @@ private fun Activity.getDeviceInfo(): DeviceInfo {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
                 countContent(MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
                     MediaStore.Downloads.getContentUri(MediaStore.VOLUME_INTERNAL))
-            else Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).length().toInt() /*Paths.get(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).absolutePath).count()*/
+            else /*Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).length().toInt()*/
+                Paths.get(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).absolutePath)
+                    .walk(PathWalkOption.INCLUDE_DIRECTORIES).count()
         } catch (e: Exception) { 0 },
         imagesExternal = countContent(imageExternalUri),
         imagesInternal = countContent(imageInternalUri),
@@ -208,10 +229,11 @@ private fun Activity.getDeviceInfo(): DeviceInfo {
         deviceId = try {
             if (telephonyManager?.let { TelephonyManagerCompat.getImei(it) }?.isNotBlank() == true)
                 TelephonyManagerCompat.getImei(telephonyManager)
-            else if (Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)?.isNotBlank() == true)
+            else if (getUniqueMediaDrmID().isNotBlank()) getUniqueMediaDrmID()
+            else if (Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)?.let { it.isNotBlank() && it != "9774d56d682e549c" } == true)
                 Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
             else ""//getUniquePseudoId()
-        } catch (e: Exception) { "" },//if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) getUniquePseudoId() else getSystemService<TelephonyManager>()?.deviceId.orEmpty(),
+        } catch (e: Exception) { "" },
         deviceInfo = Build.MODEL,
         osType = "android", osVersion = Build.VERSION.RELEASE.toString(),
         ip = try {
@@ -255,9 +277,12 @@ private fun Activity.getDeviceInfo(): DeviceInfo {
             telephonyManager?.subscriberId?.takeIf { it.isNotBlank() } ?: "-1"
         } catch (e: Exception) { "-1" },
         mac = try {
-            NetworkInterface.getNetworkInterfaces().asSequence()
-                .filter { it.name == "wlan0" }.firstOrNull()?.hardwareAddress?.formatMac()
-                ?.takeIf { it.isNotBlank() && it != "02:00:00:00:00:00" }.orEmpty()
+            (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
+                NetworkInterface.getNetworkInterfaces().asSequence()
+                    .filter { it.name == "wlan0" }.firstOrNull()?.hardwareAddress?.formatMac()
+                else wifiManager?.connectionInfo?.macAddress)?.takeIf {
+                    it.isNotBlank() && it != "02:00:00:00:00:00"
+            }.orEmpty()
         } catch (e: Exception) { "" },
         sdCard = sdCardInfo.first, unUseSdCard = sdCardInfo.second,
         resolution = "${currentPoint.width() - insets.left - insets.right}x${currentPoint.height() - insets.bottom - insets.top}",
@@ -289,8 +314,8 @@ private fun Activity.getDeviceInfo(): DeviceInfo {
 
 private fun Context.getSDCardPair(): Pair<String, String> = try {
     getSDCardInfo().firstOrNull { it.isRemovable && it.state in listOf(Environment.MEDIA_MOUNTED, Environment.MEDIA_MOUNTED_READ_ONLY)
-            && File(it.path).exists()/*Files.exists(Paths.get(it.path))*/ }?.path?.let {
-        val stat = StatFs(it)
+            && /*File(it.path).exists()*/Files.exists(it.path) }?.path?.let {
+        val stat = StatFs(it.absolutePathString())
         /*Formatter.formatFileSize(this, */(stat.blockSizeLong * stat.blockCountLong).toString()/*)*/ to
             /*Formatter.formatFileSize(this,*/ (stat.blockSizeLong * stat.availableBlocksLong).toString()
     } ?: ("-1" to "-1")
@@ -303,7 +328,7 @@ private fun Context.getSDCardInfo() = mutableListOf<SDCardInfo>().apply {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
         try {
             addAll(sm?.storageVolumes?.mapNotNull {
-                SDCardInfo(it.directoryCompat?.absolutePath.orEmpty(), it.state, it.isRemovable)
+                SDCardInfo(it.directoryCompat, it.state, it.isRemovable)
             } ?: emptyList())
         } catch (_: Exception) { }
     } else {
@@ -329,7 +354,7 @@ private fun Context.getSDCardInfo() = mutableListOf<SDCardInfo>().apply {
                     isRemovableMethod.invoke(storageVolumeElement) as Boolean
                 val state =
                     getVolumeStateMethod.invoke(sm, path) as String
-                add(SDCardInfo(path, state, isRemovable))
+                add(SDCardInfo(Paths.get(path), state, isRemovable))
             }
         } catch (_: Exception) { }
     }
@@ -337,22 +362,30 @@ private fun Context.getSDCardInfo() = mutableListOf<SDCardInfo>().apply {
 
 @Parcelize
 private data class SDCardInfo(
-    val path: String,
+    @TypeParceler<Path?, PathParceler> val path: Path?,
     val state: String,
     val isRemovable: Boolean
 ): Parcelable
 
+object PathParceler: Parceler<Path?> {
+    override fun create(parcel: Parcel): Path = Paths.get(parcel.readString())
+    override fun Path?.write(parcel: Parcel, flags: Int) {
+        parcel.writeString(this?.absolutePathString().orEmpty())
+    }
+
+}
+
 fun Context.getImageList(): List<ImageInfo> = try {
     mutableListOf<ImageInfo>().apply {
         ContentResolverCompat.query(contentResolver, imageExternalUri, arrayOf(
-            MediaStore.Images.ImageColumns._ID,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Images.ImageColumns._ID else MediaStore.Images.ImageColumns.DATA,
             MediaStore.Images.ImageColumns.DISPLAY_NAME,
             MediaStore.Images.ImageColumns.DATE_TAKEN,
             MediaStore.Images.ImageColumns.DATE_ADDED,
             MediaStore.Images.ImageColumns.DATE_MODIFIED), null, null, null, null
         ).use { processCursor(it, contentResolver, imageExternalUri) }
         ContentResolverCompat.query(contentResolver, imageInternalUri, arrayOf(
-            MediaStore.Images.ImageColumns._ID,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Images.ImageColumns._ID else MediaStore.Images.ImageColumns.DATA,
             MediaStore.Images.ImageColumns.DISPLAY_NAME,
             MediaStore.Images.ImageColumns.DATE_TAKEN,
             MediaStore.Images.ImageColumns.DATE_ADDED,
@@ -363,10 +396,10 @@ fun Context.getImageList(): List<ImageInfo> = try {
 
 private fun MutableList<ImageInfo>.processCursor(cursor: Cursor?, contentResolver: ContentResolver, originalUri: Uri) = try {
     while (cursor?.moveToNext() == true) {
-        cursor.getStringOrNull(cursor.getColumnIndex(MediaStore.Images.ImageColumns._ID))?.let { id ->
-            contentResolver.openInputStream(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
-                MediaStore.setRequireOriginal(Uri.withAppendedPath(originalUri, id))
-            else Uri.withAppendedPath(originalUri, id))?.use { input ->
+        cursor.getStringOrNull(cursor.getColumnIndex(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Images.ImageColumns._ID else MediaStore.Images.ImageColumns.DATA))?.let { id ->
+            (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+                contentResolver.openInputStream(MediaStore.setRequireOriginal(Uri.withAppendedPath(originalUri, id)))
+            else Paths.get(id).inputStream(StandardOpenOption.READ))?.let { input ->
                 val exif = input.toExifInterface()
                 val size = try {
                     val options = BitmapFactory.Options().apply {
@@ -697,7 +730,7 @@ private fun Context.getOtherData(): OtherData = OtherData(
         } catch (e: Exception) { "-1" },
     keyboard = try {
         InputDevice.getDeviceIds().map { InputDevice.getDevice(it) }
-            .firstOrNull { !it.isVirtual }?.keyboardType ?: 0
+            .firstOrNull { it?.isVirtual == false }?.keyboardType ?: 0
     } catch (e: Exception) { 0 },
     lastBootTime = (Instant.now().toEpochMilli() - SystemClock.elapsedRealtimeNanos() / 1000000L).toString(),
     isRoot = getIsRooted(),
@@ -709,7 +742,8 @@ private fun Context.getIsRooted() = try {
     val value2 = arrayOf("/system/bin/", "/system/xbin/", "/sbin/", "/system/sd/xbin/",
         "/system/bin/failsafe/", "/data/local/xbin/", "/data/local/bin/",
         "/data/local/", "/system/sbin/", "/usr/bin/", "/vendor/bin/"
-    ).any { File(it, "su").exists()/*Paths.get(it, "su").exists(LinkOption.NOFOLLOW_LINKS)*/ } || File("/system/app/Superuser.apk").exists()/*Paths.get("/system/app/Superuser.apk").exists(LinkOption.NOFOLLOW_LINKS)*/
+    ).any { /*File(it, "su").exists()*/Paths.get(it, "su").exists(LinkOption.NOFOLLOW_LINKS) } ||
+            /*File("/system/app/Superuser.apk").exists()*/Paths.get("/system/app/Superuser.apk").exists(LinkOption.NOFOLLOW_LINKS)
     val value3 = try {
         val process = Runtime.getRuntime().exec(arrayOf("/system/xbin/which", "su"))
         process.inputStream.use {
@@ -892,7 +926,7 @@ private fun Context.getStoragePair(): Pair<Long, Long> {
                 val volumesUuid = validVolumes?.mapNotNull { volume ->
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) volume.storageUuid
                     else try {
-                        volume.directoryCompat?.let { storageManager.getUuidForPath(it) } ?: volume.uuid.toUUIDorNull()
+                        volume.directoryCompat?.let { storageManager.getUuidForPath(it.toFile()) } ?: volume.uuid.toUUIDorNull()
                     }
                     catch (_: Exception) { volume.uuid.toUUIDorNull() }
                 }
@@ -904,8 +938,8 @@ private fun Context.getStoragePair(): Pair<Long, Long> {
                     free += storageStatsManager?.getFreeBytes(it) ?: 0L
                 }
             } else validVolumes?.forEach {
-                total += it?.directoryCompat?.totalSpace ?: 0L
-                free += it?.directoryCompat?.freeSpace ?: 0L
+                total += it?.directoryCompat?.fileStore()?.totalSpace ?: 0L
+                free += it?.directoryCompat?.fileStore()?.usableSpace ?: 0L
             }
         } catch (e: Exception) {
             StatFs(Environment.getExternalStorageDirectory().path).let {
@@ -939,13 +973,13 @@ private fun String?.toUUIDorNull() = try {
     UUID.fromString(this)
 } catch (_: Exception) { null }
 
-private val StorageVolume.directoryCompat: File?
+private val StorageVolume.directoryCompat: Path?
     @SuppressLint("DiscouragedPrivateApi")
-    get() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) directory
+    get() = Paths.get(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) directory?.absolutePath
         else try {
             val getPathMethod = javaClass.getDeclaredMethod("getPath")
-            File(getPathMethod.invoke(this) as String)/*Files.getFileStore(Paths.get(getPathFile?.invoke(it) as String))*/
-        } catch (_: Exception) { null }
+            /*File(getPathMethod.invoke(this) as String)*/getPathMethod.invoke(this) as String
+        } catch (_: Exception) { null })
 
 @Throws(IOException::class)
 private fun InputStream.toExifInterface(): ExifInterface? = try {
@@ -1014,6 +1048,20 @@ fun Context.getUniquePseudoId(): String = UUID.randomUUID().toString()/*try {
     
     ""
 }*/
+
+@OptIn(ExperimentalUnsignedTypes::class)
+private fun Context.getUniqueMediaDrmID(): String = try {
+    MediaDrm(UUID(-0x121074568629b532L, -0x5c37d8232ae2de13L)).use {
+        val widevineId = it.getPropertyByteArray(MediaDrm.PROPERTY_DEVICE_UNIQUE_ID)
+        val md = MessageDigest.getInstance("SHA-256")
+        md.update(widevineId)
+        md.digest().asUByteArray().joinToString("") { ubyte ->
+            ubyte.toString(radix = 16).padStart(2, '0')
+        }
+    }
+} catch (_: Exception) {
+    ""
+}
 
 private fun Context.hookSystemPropertiesSimulator(): Boolean = try {
     classLoader.loadClass("android.os.SystemProperties").let {

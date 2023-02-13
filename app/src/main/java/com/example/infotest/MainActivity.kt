@@ -63,7 +63,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         var text by mutableStateOf("申请权限")
     }
-    private var isStartingFetch = false
+    private var isStartingFetch by mutableStateOf(false)
     private val permissionArray = mutableListOf(
         Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE,
         Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION,
@@ -149,8 +149,10 @@ class MainActivity : ComponentActivity() {
                         else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) qPermissionArray
                         else permissionArray
                     val permission = rememberMultiplePermissionsState(permissions = permissions) { result ->
-                        if (result.values.all { it }) startFetch()
-                        else ActivityCompat.finishAffinity(this)
+                        if (result.isNotEmpty()) {
+                            if (result.all { it.value }) startFetch()
+                            else ActivityCompat.finishAffinity(this)
+                        }
                     }
                     if (permission.allPermissionsGranted) {
                         startFetch()
@@ -291,10 +293,13 @@ class MainActivity : ComponentActivity() {
     @SuppressLint("MissingPermission")
     override fun onStop() {
         super.onStop()
-        getSystemService<LocationManager>() ?.let { LocationManagerCompat.removeUpdates(it, listener) }
-        //getSystemService<LocationManager>()?.removeUpdates(listener)
-        GoogleApiAvailability.getInstance().checkApiAvailability(locationServices).addOnSuccessListener { locationServices.removeLocationUpdates(callback) }
-        getSystemService<ConnectivityManager>()?.unregisterNetworkCallback(wifiCallback)
+        if (isStartingFetch) {
+            getSystemService<LocationManager>()?.let { LocationManagerCompat.removeUpdates(it, listener) }
+            //getSystemService<LocationManager>()?.removeUpdates(listener)
+            GoogleApiAvailability.getInstance().checkApiAvailability(locationServices)
+                .addOnSuccessListener { locationServices.removeLocationUpdates(callback) }
+            getSystemService<ConnectivityManager>()?.unregisterNetworkCallback(wifiCallback)
+        }
         if (isFinishing) onFinish()
     }
 
