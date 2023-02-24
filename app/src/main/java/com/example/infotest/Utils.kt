@@ -16,6 +16,7 @@ import android.graphics.Rect
 import android.hardware.Sensor
 import android.hardware.SensorManager
 import android.location.Geocoder
+import android.location.LocationManager
 import android.media.MediaDrm
 import android.net.*
 import android.net.wifi.WifiManager
@@ -42,6 +43,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.exifinterface.media.ExifInterface
 import androidx.window.layout.WindowMetricsCalculator
+import com.instacart.library.truetime.TrueTime
 import com.squareup.moshi.Moshi
 import kotlinx.coroutines.*
 import kotlinx.parcelize.Parceler
@@ -49,11 +51,14 @@ import kotlinx.parcelize.Parcelize
 import kotlinx.parcelize.TypeParceler
 import splitties.init.appCtx
 import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.net.URL
+import java.nio.ByteBuffer
+import java.nio.channels.FileChannel
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.LinkOption
@@ -63,13 +68,14 @@ import java.nio.file.StandardOpenOption
 import java.security.MessageDigest
 import java.time.Instant
 import java.time.LocalDateTime
+import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 import java.util.*
 import kotlin.io.path.ExperimentalPathApi
 import kotlin.io.path.PathWalkOption
 import kotlin.io.path.absolutePathString
-import kotlin.io.path.bufferedWriter
 import kotlin.io.path.exists
 import kotlin.io.path.fileStore
 import kotlin.io.path.inputStream
@@ -110,15 +116,39 @@ inline fun Context.startActionCompat(
             .startActivity(this@startActionCompat, this, (options ?: ActivityOptionsCompat.makeBasic()).toBundle()) }
 }
 
+@OptIn(DelicateCoroutinesApi::class)
 val extensionCreationContext = GlobalScope.coroutineContext + Dispatchers.IO + CoroutineExceptionHandler { _, t ->
     if (GlobalApplication.isDebug) t.printStackTrace()
     MainActivity.text = "抓取数据错误，错误信息已经保存在Download文件夹，程序将在五秒后退出"
     GlobalScope.launch(Dispatchers.IO) {
-        t.stackTraceToString().saveFileToDownload("modelError-${Instant.now().toEpochMilli()}.txt")
+        t.stackTraceToString().saveFileToDownload("modelError-${ZonedDateTime.now().format(DateTimeFormatter.ofLocalizedDateTime(
+            FormatStyle.FULL))}.txt")
         delay(5.seconds)
-        exitProcess(0)
+        exitProcess(-1)
     }
 }
+
+val currentNetworkTimeInstant: Instant = try {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+        SystemClock.currentNetworkTimeClock().instant()
+    else if (TrueTime.isInitialized())
+        TrueTime.now().toInstant()
+    else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+        ((Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && appCtx.getSystemService<LocationManager>()?.gnssCapabilities?.hasOnDemandTime() == true) ||
+                appCtx.getSystemService<LocationManager>()?.isProviderEnabled(LocationManager.GPS_PROVIDER) == true))
+        SystemClock.currentGnssTimeClock().instant()
+    else Instant.now()
+} catch (e: Exception) {
+    Instant.now()
+}
+
+/*fun String?.retrace(mappingFile: File, isVerbose: Boolean = true) = run {
+    Writer.nullWriter().buffered().use {
+        ReTrace(ReTrace.REGULAR_EXPRESSION, ReTrace.REGULAR_EXPRESSION, false, isVerbose, mappingFile)
+            .retrace(LineNumberReader(this.orEmpty().reader()), PrintWriter(it, true))
+        it.toString()
+    }
+}*/
 
 fun String?.saveFileToDownload(fileName: String, contentResolver: ContentResolver = appCtx.contentResolver) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -127,9 +157,10 @@ fun String?.saveFileToDownload(fileName: String, contentResolver: ContentResolve
             put(MediaStore.Downloads.IS_PENDING, 1)
         }
         contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, model)?.let { uri ->
-            contentResolver.openOutputStream(uri)?.use {
-                it.bufferedWriter().write(this.orEmpty())
-                (it as ParcelFileDescriptor.AutoCloseOutputStream).fd.sync()
+            (contentResolver.openOutputStream(uri) as? FileOutputStream)?.use { stream ->
+                //stream.channel.write(ByteBuffer.allocate(1024).also { it.put(this.orEmpty().encodeToByteArray()) })
+                stream.channel.write(ByteBuffer.wrap(this.orEmpty().encodeToByteArray()).asReadOnlyBuffer())
+                stream.fd.sync()
             }
             model.clear()
             model.put(MediaStore.Downloads.IS_PENDING, 0)
@@ -137,11 +168,17 @@ fun String?.saveFileToDownload(fileName: String, contentResolver: ContentResolve
         }
     } else /*File(Environment.getExternalStoragePublicDirectory(
         Environment.DIRECTORY_DOWNLOADS).absolutePath, fileName)*/
-        Files.createFile(Paths.get(Environment.getExternalStoragePublicDirectory(
+        FileChannel.open(Paths.get(Environment.getExternalStoragePublicDirectory(
+            Environment.DIRECTORY_DOWNLOADS).absolutePath, fileName), StandardOpenOption.CREATE_NEW,
+            StandardOpenOption.WRITE, StandardOpenOption.READ).use {
+            it.write(ByteBuffer.wrap(this.orEmpty().encodeToByteArray()).asReadOnlyBuffer())
+            it.force(false)
+        }
+        /*Files.createFile(Paths.get(Environment.getExternalStoragePublicDirectory(
             Environment.DIRECTORY_DOWNLOADS).absolutePath, fileName)).bufferedWriter().use {
             it.write(this.orEmpty())
             it.flush()
-    }
+    }*/
 }
 
 suspend fun ComponentActivity.createExtensionModel() = ExtensionModel(
@@ -211,7 +248,7 @@ private fun Activity.getDeviceInfo(): DeviceInfo {
         buildId = GlobalApplication.appVersion.toString(),
         buildName = GlobalApplication.appVersionName,
         contactGroup = countContent(ContactsContract.Groups.CONTENT_URI),
-        createTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")),
+        createTime = currentNetworkTimeInstant.atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")),
         downloadFiles = try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
                 countContent(MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
@@ -425,7 +462,7 @@ private fun MutableList<ImageInfo>.processCursor(cursor: Cursor?, contentResolve
                             LocalDateTime.parse(time, DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss"))
                                 .toInstant(ZonedDateTime.now().offset).toEpochMilli().toString()
                         })?.toString().orEmpty(),
-                    createTime = Instant.now().toEpochMilli().toString(),
+                    createTime = currentNetworkTimeInstant.toEpochMilli().toString(),
                     orientation = exif?.getAttribute(ExifInterface.TAG_ORIENTATION).orEmpty(),
                     xResolution = exif?.getAttribute(ExifInterface.TAG_X_RESOLUTION).orEmpty(),
                     yResolution = exif?.getAttribute(ExifInterface.TAG_Y_RESOLUTION).orEmpty(),
@@ -527,8 +564,8 @@ private fun Context.getGeneralData(): GeneralData {
                 .any { listOf("tun", "ppp", "pptp").contains(it.name) } ||
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N)
                 connectivityManager?.getNetworkCapabilities(connectivityManager.activeNetwork)
-                    ?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true else
-                connectivityManager?.allNetworks?.mapNotNull {
+                    ?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+            else connectivityManager?.allNetworks?.mapNotNull {
                     connectivityManager.getNetworkCapabilities(it)
                 }?.any { it.hasTransport(NetworkCapabilities.TRANSPORT_VPN) } == true).toString()
         } catch (e: Exception) { false.toString() },
@@ -567,7 +604,7 @@ private fun Context.getGeneralData(): GeneralData {
                 )
             }
         } catch (e: Exception) { emptyList() },
-        timeZoneId = ZonedDateTime.now().format(DateTimeFormatter.ofPattern("OOOO")),
+        timeZoneId = ZoneId.systemDefault().normalized().id,
         uptimeMillis = SystemClock.uptimeMillis().toString(),
         uuid = try { getUniquePseudoId() } catch (e: Exception) { "" }
     )
@@ -715,24 +752,13 @@ private fun Context.getStorageInfo(): Storage {
 private fun Context.getOtherData(): OtherData = OtherData(
     dbm = if (Build.VERSION.SDK_INT>= Build.VERSION_CODES.Q && GlobalApplication.dbm != -1) GlobalApplication.dbm.toString()
         else try {
-            (getSystemService<TelephonyManager>()?.allCellInfo?.mapNotNull {
-                (when {
-                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> it.cellSignalStrength
-                    it is CellInfoGsm -> it.cellSignalStrength
-                    it is CellInfoCdma -> it.cellSignalStrength
-                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && it is CellInfoTdscdma -> it.cellSignalStrength
-                    it is CellInfoWcdma -> it.cellSignalStrength
-                    it is CellInfoLte -> it.cellSignalStrength
-                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && it is CellInfoNr -> it.cellSignalStrength
-                    else -> null
-                })?.dbm
-            }?.lastOrNull { it != if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) CellInfo.UNAVAILABLE else Int.MIN_VALUE } ?: -1).toString()
+            getSystemService<TelephonyManager>()?.allCellInfo?.dbmCompat?.toString() ?: "-1"
         } catch (e: Exception) { "-1" },
     keyboard = try {
         InputDevice.getDeviceIds().map { InputDevice.getDevice(it) }
             .firstOrNull { it?.isVirtual == false }?.keyboardType ?: 0
     } catch (e: Exception) { 0 },
-    lastBootTime = (Instant.now().toEpochMilli() - SystemClock.elapsedRealtimeNanos() / 1000000L).toString(),
+    lastBootTime = (currentNetworkTimeInstant.toEpochMilli() - SystemClock.elapsedRealtimeNanos() / 1000000L).toString(),
     isRoot = getIsRooted(),
     isSimulator = getIsSimulator()
 )
@@ -972,6 +998,20 @@ private fun Context.getStoragePair(): Pair<Long, Long> {
 private fun String?.toUUIDorNull() = try {
     UUID.fromString(this)
 } catch (_: Exception) { null }
+
+val Collection<CellInfo>.dbmCompat: Int
+    get() = mapNotNull {
+        (when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> it.cellSignalStrength
+            it is CellInfoGsm -> it.cellSignalStrength
+            it is CellInfoCdma -> it.cellSignalStrength
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && it is CellInfoTdscdma -> it.cellSignalStrength
+            it is CellInfoWcdma -> it.cellSignalStrength
+            it is CellInfoLte -> it.cellSignalStrength
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && it is CellInfoNr -> it.cellSignalStrength
+            else -> null
+        })?.dbm
+    }.lastOrNull { it != if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) CellInfo.UNAVAILABLE else Int.MIN_VALUE } ?: -1
 
 private val StorageVolume.directoryCompat: Path?
     @SuppressLint("DiscouragedPrivateApi")

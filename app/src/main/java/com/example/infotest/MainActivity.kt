@@ -5,6 +5,8 @@ package com.example.infotest
 import android.Manifest
 import android.annotation.SuppressLint
 import android.location.Geocoder
+import android.location.GnssMeasurementsEvent
+import android.location.GnssStatus
 import android.location.Location
 import android.location.LocationManager
 import android.net.*
@@ -52,11 +54,14 @@ import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
+import com.instacart.library.truetime.TrueTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.time.Instant
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 import kotlin.time.Duration.Companion.seconds
 
 class MainActivity : ComponentActivity() {
@@ -179,18 +184,7 @@ class MainActivity : ComponentActivity() {
                 getSystemService<TelephonyManager>()?.requestCellInfoUpdate(Dispatchers.IO.asExecutor(),
                     object : TelephonyManager.CellInfoCallback() {
                         override fun onCellInfo(cellInfo: MutableList<CellInfo>) {
-                            GlobalApplication.dbm = cellInfo.mapNotNull {
-                                (when {
-                                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> it.cellSignalStrength
-                                    it is CellInfoGsm -> it.cellSignalStrength
-                                    it is CellInfoCdma -> it.cellSignalStrength
-                                    it is CellInfoTdscdma -> it.cellSignalStrength
-                                    it is CellInfoWcdma -> it.cellSignalStrength
-                                    it is CellInfoLte -> it.cellSignalStrength
-                                    it is CellInfoNr -> it.cellSignalStrength
-                                    else -> null
-                                })?.dbm
-                            }.lastOrNull { it != CellInfo.UNAVAILABLE } ?: -1
+                            GlobalApplication.dbm = cellInfo.dbmCompat
                         }
                     })
             }
@@ -281,7 +275,7 @@ class MainActivity : ComponentActivity() {
                 delay(5.seconds)
                 text = "正在抓取……"
                 createExtensionModel().toJson()
-                    .saveFileToDownload("model-${Instant.now().toEpochMilli()}.txt", contentResolver)
+                    .saveFileToDownload("model-${ZonedDateTime.now().format(DateTimeFormatter.ofLocalizedDateTime(FormatStyle.FULL))}.txt", contentResolver)
                 text = "抓取完成！信息已经保存在Download文件夹，程序将在五秒钟之内关闭"
                 delay(5.seconds)
                 ActivityCompat.finishAffinity(this@MainActivity)
@@ -309,7 +303,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun onFinish() {
-        GlobalApplication.lastLoginTime = Instant.now().toEpochMilli()
+        GlobalApplication.lastLoginTime = currentNetworkTimeInstant.toEpochMilli()
     }
 }
 

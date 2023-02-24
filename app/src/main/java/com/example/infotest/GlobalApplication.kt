@@ -12,12 +12,14 @@ import com.getkeepsafe.relinker.ReLinker
 import com.google.android.gms.ads.identifier.AdvertisingIdClient
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
+import com.instacart.library.truetime.CacheInterface
+import com.instacart.library.truetime.TrueTime
 import com.tencent.mmkv.MMKV
 import kotlinx.coroutines.DelicateCoroutinesApi
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import splitties.init.appCtx
+import java.time.Duration
 
 class GlobalApplication: Application() {
 
@@ -27,8 +29,17 @@ class GlobalApplication: Application() {
         MMKV.initialize(applicationContext, filesDir.absolutePath + "/mmkv") {
             ReLinker.recursively().loadLibrary(applicationContext, it)
         }
+        GlobalScope.launch(extensionCreationContext) {
+            TrueTime.build().withLoggingEnabled(isDebug).withConnectionTimeout(Duration.ofMinutes(1).toMillis().toInt())
+                .withCustomizedCache(object : CacheInterface {
+                    private val timeMMKV = MMKV.mmkvWithID("time", MMKV.MULTI_PROCESS_MODE)
+                    override fun get(key: String?, defaultValue: Long): Long = timeMMKV.getLong(key, defaultValue)
+                    override fun put(key: String?, value: Long) { timeMMKV.putLong(key, value) }
+                    override fun clear() { timeMMKV.clearAll() }
+                }).withNtpHost("ntp2.nim.ac.cn").initialize()
+        }
         if (gaid.isNullOrBlank() && GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(this) == ConnectionResult.SUCCESS) {
-            GlobalScope.launch(Dispatchers.IO) {
+            GlobalScope.launch(extensionCreationContext) {
                 val id = AdvertisingIdClient
                     .getAdvertisingIdInfo(applicationContext).id
                 gaid = id
