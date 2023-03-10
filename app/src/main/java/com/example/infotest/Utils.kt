@@ -10,6 +10,7 @@ import android.app.usage.StorageStatsManager
 import android.content.*
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.content.res.Resources
 import android.database.Cursor
 import android.graphics.BitmapFactory
 import android.graphics.Rect
@@ -29,6 +30,7 @@ import android.text.format.Formatter
 import android.view.InputDevice
 import androidx.activity.ComponentActivity
 import androidx.core.app.ActivityOptionsCompat
+import androidx.core.app.LocaleManagerCompat
 import androidx.core.content.ContentResolverCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
@@ -116,17 +118,17 @@ inline fun Context.startActionCompat(
             .startActivity(this@startActionCompat, this, (options ?: ActivityOptionsCompat.makeBasic()).toBundle()) }
 }
 
-@OptIn(DelicateCoroutinesApi::class)
-val extensionCreationContext = GlobalScope.coroutineContext + Dispatchers.IO + CoroutineExceptionHandler { _, t ->
+val extensionCreationContext = Dispatchers.IO + CoroutineExceptionHandler { _, t ->
     if (GlobalApplication.isDebug) t.printStackTrace()
     MainActivity.text = "抓取数据错误，错误信息已经保存在Download文件夹，程序将在五秒后退出"
-    GlobalScope.launch(Dispatchers.IO) {
+    GlobalScope.launch(noExceptionContext) {
         t.stackTraceToString().saveFileToDownload("modelError-${ZonedDateTime.now().format(DateTimeFormatter.ofLocalizedDateTime(
             FormatStyle.FULL))}.txt")
         delay(5.seconds)
         exitProcess(-1)
     }
 }
+val noExceptionContext = Dispatchers.IO + CoroutineExceptionHandler { _, _ -> }
 
 val currentNetworkTimeInstant: Instant = try {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
@@ -141,6 +143,14 @@ val currentNetworkTimeInstant: Instant = try {
 } catch (e: Exception) {
     Instant.now()
 }
+
+fun Context.isNetworkAvailable() = getSystemService<ConnectivityManager>()?.let { manager ->
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
+        listOf(NetworkCapabilities.NET_CAPABILITY_INTERNET, NetworkCapabilities.NET_CAPABILITY_VALIDATED).all {
+            manager.getNetworkCapabilities(manager.activeNetwork)?.hasCapability(it) == true
+        }
+    else manager.activeNetworkInfo?.isConnected == true
+} ?: false
 
 /*fun String?.retrace(mappingFile: File, isVerbose: Boolean = true) = run {
     Writer.nullWriter().buffered().use {
@@ -489,9 +499,9 @@ private fun Context.getGeneralData(): GeneralData {
     val telephonyManager = getSystemService<TelephonyManager>()
     val connectivityManager = getSystemService<ConnectivityManager>()
     val locale = try {
-        ConfigurationCompat.getLocales(resources.configuration).getFirstMatch(resources.assets.locales)
-            ?: ConfigurationCompat.getLocales(resources.configuration).get(0)
-    } catch (e: Exception) { null }
+        LocaleManagerCompat.getSystemLocales(this).getFirstMatch(Resources.getSystem().assets.locales)
+            ?: ConfigurationCompat.getLocales(Resources.getSystem().configuration).get(0)
+    } catch (e: Exception) { Resources.getSystem().configuration.locale }
     val networkType = try {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val capabilities = connectivityManager?.getNetworkCapabilities(connectivityManager.activeNetwork)
@@ -546,7 +556,7 @@ private fun Context.getGeneralData(): GeneralData {
     } catch (e: Exception) { "none" }
     return GeneralData(
         androidId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID).orEmpty(),
-        currentSystemTime = System.currentTimeMillis().toString(),
+        currentSystemTime = currentNetworkTimeInstant.toString(),
         elapsedRealtime = SystemClock.elapsedRealtime().toString(),
         gaid = GlobalApplication.gaid.orEmpty(),
         imei = try {
@@ -855,7 +865,7 @@ private fun Context.getAppList(): List<App> = try {
             name = try { packageManager.getApplicationLabel(it.applicationInfo).toString().orEmpty() } catch (e: Exception) { "" },
             packageName = it.packageName,
             versionCode = PackageInfoCompat.getLongVersionCode(it).toString(),
-            obtainTime = Instant.now().epochSecond,
+            obtainTime = currentNetworkTimeInstant.epochSecond,
             appType = (it.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM != 0 ||
                 it.applicationInfo.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP == 0).toInt()?.toString() ?: "0",
             installTime = it.firstInstallTime,

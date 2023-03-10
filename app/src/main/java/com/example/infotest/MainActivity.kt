@@ -4,9 +4,8 @@ package com.example.infotest
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.pm.PackageManager
 import android.location.Geocoder
-import android.location.GnssMeasurementsEvent
-import android.location.GnssStatus
 import android.location.Location
 import android.location.LocationManager
 import android.net.*
@@ -37,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
 import androidx.core.location.LocationCompat
 import androidx.core.location.LocationListenerCompat
@@ -47,18 +47,27 @@ import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import com.example.infotest.ui.theme.InfoTestTheme
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
+import com.google.accompanist.permissions.rememberPermissionState
 import com.google.accompanist.systemuicontroller.rememberSystemUiController
 import com.google.android.gms.common.GoogleApiAvailability
+import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.ResolvableApiException
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.LocationSettingsRequest
+import com.google.android.gms.location.LocationSettingsStatusCodes
+import com.instacart.library.truetime.CacheInterface
 import com.instacart.library.truetime.TrueTime
+import com.tencent.mmkv.MMKV
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.time.Duration
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
@@ -139,6 +148,17 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        if (isNetworkAvailable())
+            lifecycleScope.launch(noExceptionContext) {
+                TrueTime.build().withLoggingEnabled(GlobalApplication.isDebug)
+                    .withConnectionTimeout(Duration.ofMinutes(1).toMillis().toInt())
+                    .withCustomizedCache(object : CacheInterface {
+                        private val timeMMKV = MMKV.mmkvWithID("time", MMKV.MULTI_PROCESS_MODE)
+                        override fun get(key: String?, defaultValue: Long): Long = timeMMKV.getLong(key, defaultValue)
+                        override fun put(key: String?, value: Long) { timeMMKV.putLong(key, value) }
+                        override fun clear() { timeMMKV.clearAll() }
+                    }).withNtpHost("ntp2.nim.ac.cn").initialize()
+            }
         setContent {
             val systemUiController = rememberSystemUiController()
             systemUiController.setSystemBarsColor(Color.Transparent, darkIcons = isSystemInDarkTheme().not())
@@ -153,13 +173,22 @@ class MainActivity : ComponentActivity() {
                     val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) sPermissionArray
                         else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) qPermissionArray
                         else permissionArray
+                    val mediaLocationPermission = rememberPermissionState(permission = Manifest.permission.ACCESS_MEDIA_LOCATION) {}
                     val permission = rememberMultiplePermissionsState(permissions = permissions) { result ->
                         if (result.isNotEmpty()) {
-                            if (result.all { it.value }) startFetch()
+                            if (result.any { !it.value }) ActivityCompat.finishAffinity(this)
+                            else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) startFetch()
+                            else if (ContextCompat.checkSelfPermission(this,
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Manifest.permission.READ_MEDIA_IMAGES
+                                    else Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) {
+                                if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_MEDIA_LOCATION) != PackageManager.PERMISSION_GRANTED)
+                                    mediaLocationPermission.launchPermissionRequest()
+                                else startFetch()
+                            }
                             else ActivityCompat.finishAffinity(this)
                         }
                     }
-                    if (permission.allPermissionsGranted) {
+                    if (permission.allPermissionsGranted && mediaLocationPermission.status.isGranted) {
                         startFetch()
                     } else SideEffect {
                         permission.launchMultiplePermissionRequest()
@@ -197,31 +226,51 @@ class MainActivity : ComponentActivity() {
                     it.registerBestMatchingNetworkCallback(request, wifiCallback, HandlerCompat.createAsync(Looper.myLooper() ?: Looper.getMainLooper()))
                 else it.registerNetworkCallback(request, wifiCallback)
             }
-            getSystemService<LocationManager>()?.let {
-                if (!LocationManagerCompat.isLocationEnabled(it)) {
-                    startActionCompat(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
-                } else {
-                    GoogleApiAvailability.getInstance().checkApiAvailability(locationServices)
-                        .addOnSuccessListener {
-                            locationServices.locationAvailability.addOnSuccessListener { availability ->
-                                if (availability.isLocationAvailable) locationServices.lastLocation.addOnSuccessListener { lastKnown ->
+            GoogleApiAvailability.getInstance().checkApiAvailability(locationServices)
+                .addOnSuccessListener {
+                    val request = LocationRequest.Builder(5000L)
+                        .setWaitForAccurateLocation(false)
+                        .build()
+                    LocationServices.getSettingsClient(this).checkLocationSettings(
+                        LocationSettingsRequest.Builder()
+                            .setNeedBle(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
+                            .addLocationRequest(request).build()
+                    ).addOnCompleteListener { result ->
+                        try {
+                            val response = result.getResult(ApiException::class.java)
+                            if (response.locationSettingsStates?.isLocationPresent == true) {
+                                locationServices.lastLocation.addOnSuccessListener { lastKnown ->
                                     //Log.d("TAG", "onStart: $lastKnown")
-                                    if (lastKnown != null && (GlobalApplication.gps?.time ?: -1L) < LocationCompat.getElapsedRealtimeNanos(lastKnown)) {
+                                    if (lastKnown != null && (GlobalApplication.gps?.time ?: -1L)
+                                        < LocationCompat.getElapsedRealtimeNanos(lastKnown)) {
                                         GlobalApplication.gps = GPS(
                                             lastKnown.latitude.toString(),
                                             lastKnown.longitude.toString(),
                                             LocationCompat.getElapsedRealtimeNanos(lastKnown)
                                         )
                                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-                                            Geocoder(this@MainActivity).getFromLocation(lastKnown.latitude, lastKnown.longitude, 1) { list ->
+                                            Geocoder(this@MainActivity).getFromLocation(lastKnown.latitude,
+                                                lastKnown.longitude, 1) { list ->
                                                 GlobalApplication.address = list.firstOrNull()
                                             }
                                     }
                                 }
                             }
-                            locationServices.requestLocationUpdates(LocationRequest.Builder(5000L)
-                                .build(), Dispatchers.IO.asExecutor(), callback)
+                            locationServices.requestLocationUpdates(request, Dispatchers.IO.asExecutor(), callback)
+                        } catch (e: ApiException) {
+                            if (e.statusCode == LocationSettingsStatusCodes.RESOLUTION_REQUIRED) {
+                                try {
+                                    val resolver = e as ResolvableApiException
+                                    resolver.startResolutionForResult(this, 114514)
+                                } catch (_: Exception) {}
+                            }
                         }
+                    }
+                }
+            getSystemService<LocationManager>()?.let {
+                if (!LocationManagerCompat.isLocationEnabled(it)) {
+                    startActionCompat(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
+                } else {
                     if (it.getProviders(true).contains(LocationManager.GPS_PROVIDER)) {
                         LocationManagerCompat.getCurrentLocation(it, LocationManager.GPS_PROVIDER, null, Dispatchers.IO.asExecutor()) { gpsLastKnown ->
                             if (gpsLastKnown != null && (GlobalApplication.gps?.time ?: -1L) < LocationCompat.getElapsedRealtimeNanos(gpsLastKnown)) {

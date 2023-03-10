@@ -35,7 +35,6 @@ android {
         release {
             minifyEnabled true
             shrinkResources true
-            zipAlignEnabled true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
@@ -71,10 +70,8 @@ android {
     }
 
     packaging {
-        resources {
-            excludes += '/META-INF/{AL2.0,LGPL2.1}'
-            excludes += ['DebugProbesKt.bin']
-        }
+        resources.excludes += '/META-INF/{AL2.0,LGPL2.1}'
+        resources.excludes += ['DebugProbesKt.bin']
     }
 
     namespace 'com.example.infotest'
@@ -96,24 +93,24 @@ dependencies {
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs_nio:2.0.2'
     debugImplementation 'com.squareup.leakcanary:leakcanary-android:2.10'
     implementation 'com.louiscad.splitties:splitties-appctx:3.0.0'
-    implementation 'androidx.core:core-ktx:1.10.0-beta01'
+    implementation 'androidx.core:core-ktx:1.12.0-alpha01'
     implementation 'androidx.coordinatorlayout:coordinatorlayout:1.2.0'
-    implementation 'androidx.fragment:fragment-ktx:1.6.0-alpha06'
+    implementation 'androidx.fragment:fragment-ktx:1.6.0-alpha07'
     implementation 'androidx.collection:collection-ktx:1.3.0-alpha02'
     implementation "androidx.compose.animation:animation:$compose_version"
     implementation "androidx.compose.ui:ui:$compose_version"
-    implementation 'androidx.compose.material3:material3:1.1.0-alpha07'
+    implementation 'androidx.compose.material3:material3:1.1.0-alpha08'
     implementation "androidx.compose.ui:ui-tooling-preview:$compose_version"
     implementation "androidx.compose.foundation:foundation:$compose_version"
     implementation "androidx.compose.foundation:foundation-layout:$compose_version"
     implementation 'com.google.accompanist:accompanist-permissions:0.29.1-alpha'
     implementation 'com.google.accompanist:accompanist-systemuicontroller:0.29.1-alpha'
     implementation 'androidx.exifinterface:exifinterface:1.3.6'
-    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.6.0-rc01'
-    implementation 'androidx.lifecycle:lifecycle-livedata-ktx:2.6.0-rc01'
-    implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.0-rc01'
-    implementation 'androidx.lifecycle:lifecycle-viewmodel-savedstate:2.6.0-rc01'
-    implementation 'androidx.activity:activity-compose:1.8.0-alpha01'
+    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.6.0'
+    implementation 'androidx.lifecycle:lifecycle-livedata-ktx:2.6.0'
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.0'
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-savedstate:2.6.0'
+    implementation 'androidx.activity:activity-compose:1.8.0-alpha02'
     implementation 'androidx.window:window:1.1.0-alpha06'
     implementation 'androidx.loader:loader:1.1.0'
     implementation 'androidx.annotation:annotation:1.6.0'
