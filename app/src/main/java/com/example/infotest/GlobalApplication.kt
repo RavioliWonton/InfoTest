@@ -10,14 +10,17 @@ import android.os.Build
 import androidx.core.content.pm.PackageInfoCompat
 import com.getkeepsafe.relinker.ReLinker
 import com.google.android.gms.ads.identifier.AdvertisingIdClient
+import com.google.android.gms.appset.AppSet
 import com.google.android.gms.common.ConnectionResult
-import com.google.android.gms.common.GoogleApiAvailability
+import com.google.android.gms.common.GoogleApiAvailabilityLight
 import com.google.android.gms.security.ProviderInstaller
+import com.instacart.truetime.time.TrueTimeImpl
+import com.instacart.truetime.time.TrueTimeParameters
 import com.tencent.mmkv.MMKV
 import kotlinx.coroutines.DelicateCoroutinesApi
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import splitties.init.appCtx
 
 class GlobalApplication: Application() {
@@ -25,17 +28,22 @@ class GlobalApplication: Application() {
     @DelicateCoroutinesApi
     override fun onCreate() {
         super.onCreate()
-        MMKV.initialize(applicationContext, filesDir.absolutePath + "/mmkv") {
+        MMKV.initialize(applicationContext, filesDir.absolutePath + Constants.mmkvDefaultRoute) {
             ReLinker.recursively().loadLibrary(applicationContext, it)
         }
-        ProviderInstaller.installIfNeeded(this)
-        if (gaid.isNullOrBlank() && GoogleApiAvailability.getInstance()
-            .isGooglePlayServicesAvailable(this) == ConnectionResult.SUCCESS) {
-            GlobalScope.launch(noExceptionContext) {
-                val id = AdvertisingIdClient.getAdvertisingIdInfo(applicationContext).id
-                gaid = id
+        // Light is enough for checking for gms availability according to so/57902978
+        if (GoogleApiAvailabilityLight.getInstance()
+                .isGooglePlayServicesAvailable(this) == ConnectionResult.SUCCESS) {
+            ProviderInstaller.installIfNeeded(this)
+            if (gaid.isNullOrBlank()) GlobalScope.launch(noExceptionContext) {
+                gaid = AdvertisingIdClient.getAdvertisingIdInfo(applicationContext).id
+            }
+            // Always change, not usable
+            if (appSetId.isNullOrBlank()) GlobalScope.launch(noExceptionContext) {
+                appSetId = AppSet.getClient(applicationContext).appSetIdInfo.await().id
             }
         }
+        trueTime.sync()
     }
 
     @Suppress("DEPRECATION")
@@ -53,25 +61,35 @@ class GlobalApplication: Application() {
             else appCtx.packageManager.getPackageInfo(appCtx.packageName, 0).versionName }
         val isDebug by lazy { appCtx.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0 }
         var lastLoginTime: Long
-            get() = mmkv.decodeLong("lastLogin", 0)
-            set(value) { mmkv.encode("lastLogin", value) }
+            get() = mmkv.decodeLong(Constants.lastLoginTag, 0)
+            set(value) { mmkv.encode(Constants.lastLoginTag, value) }
         var gaid: String?
             get() = mmkv.decodeString(Constants.gaidTag, "")
             set(value) { mmkv.encode(Constants.gaidTag, value) }
+        var appSetId: String?
+            get() = mmkv.decodeString(Constants.appSetIdTag, "")
+            set(value) { mmkv.encode(Constants.appSetIdTag, value) }
         var gps: GPS?
-            get() = mmkv.decodeParcelable("gps", GPS::class.java)
-            set(value) { mmkv.encode("gps", value) }
+            get() = mmkv.decodeParcelable(Constants.gpsTag, GPS::class.java)
+            set(value) { mmkv.encode(Constants.gpsTag, value) }
         var dbm: Int
-            get() = mmkv.decodeInt("dbm", -1)
-            set(value) { mmkv.encode("dbm", value) }
+            get() = mmkv.decodeInt(Constants.dbmTag, -1)
+            set(value) { mmkv.encode(Constants.dbmTag, value) }
         var currentWifiCapabilities: WifiInfo?
-            get() = mmkv.decodeParcelable("wifi", WifiInfo::class.java)
-            set(value) { mmkv.encode("wifi", value) }
+            get() = mmkv.decodeParcelable(Constants.wifiCapabilitiesTag, WifiInfo::class.java)
+            set(value) { mmkv.encode(Constants.wifiCapabilitiesTag, value) }
         var currentWifiLinkProperties: LinkProperties?
-            get() = mmkv.decodeParcelable("wifi", LinkProperties::class.java)
-            set(value) { mmkv.encode("wifi", value) }
+            get() = mmkv.decodeParcelable(Constants.wifiPropertiesTag, LinkProperties::class.java)
+            set(value) { mmkv.encode(Constants.wifiPropertiesTag, value) }
         var address: Address?
-            get() = mmkv.decodeParcelable("address", Address::class.java)
-            set(value) { mmkv.encode("address", value) }
+            get() = mmkv.decodeParcelable(Constants.addressTag, Address::class.java)
+            set(value) { mmkv.encode(Constants.addressTag, value) }
+        val trueTime by lazy { TrueTimeImpl(
+            params = TrueTimeParameters.Builder()
+                .returnSafelyWhenUninitialized(true)
+                .ntpHostPool(arrayListOf("ntp2.nim.ac.cn", "ntp.ntsc.ac.cn",
+                    "ntp.sjtu.edu.cn", "time-e-g.nist.gov"))
+                .buildParams())
+        }
     }
 }

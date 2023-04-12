@@ -60,14 +60,10 @@ import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.LocationSettingsRequest
 import com.google.android.gms.location.LocationSettingsStatusCodes
-import com.instacart.library.truetime.CacheInterface
-import com.instacart.library.truetime.TrueTime
-import com.tencent.mmkv.MMKV
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.time.Duration
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
@@ -80,7 +76,8 @@ class MainActivity : ComponentActivity() {
     private var isStartingFetch by mutableStateOf(false)
     private val permissionArray = mutableListOf(
         Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE,
-        Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION,
+        Manifest.permission.ACCESS_COARSE_LOCATION,
+        Manifest.permission.ACCESS_FINE_LOCATION,
         Manifest.permission.READ_CONTACTS, Manifest.permission.READ_SMS,
         Manifest.permission.READ_PHONE_STATE, Manifest.permission.READ_CALENDAR
     )
@@ -128,7 +125,22 @@ class MainActivity : ComponentActivity() {
         }
     }
     private val wifiCallback by lazy {
-        object : ConnectivityManager.NetworkCallback() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+            object : ConnectivityManager.NetworkCallback(FLAG_INCLUDE_LOCATION_INFO) {
+                override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+                    super.onCapabilitiesChanged(network, networkCapabilities)
+                    if (networkCapabilities.transportInfo is WifiInfo)
+                        GlobalApplication.currentWifiCapabilities = networkCapabilities.transportInfo as WifiInfo
+                    }
+
+                override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
+                    super.onLinkPropertiesChanged(network, linkProperties)
+                    if (getSystemService<ConnectivityManager>()?.getNetworkCapabilities(network)
+                        ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true)
+                        GlobalApplication.currentWifiLinkProperties = linkProperties
+                }
+            }
+        else object : ConnectivityManager.NetworkCallback() {
             override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
                 super.onCapabilitiesChanged(network, networkCapabilities)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && networkCapabilities.transportInfo is WifiInfo)
@@ -138,7 +150,7 @@ class MainActivity : ComponentActivity() {
             override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
                 super.onLinkPropertiesChanged(network, linkProperties)
                 if (getSystemService<ConnectivityManager>()?.getNetworkCapabilities(network)
-                    ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true)
+                        ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true)
                     GlobalApplication.currentWifiLinkProperties = linkProperties
             }
         }
@@ -148,17 +160,17 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        if (isNetworkAvailable())
+        /*if (isNetworkAvailable())
             lifecycleScope.launch(noExceptionContext) {
                 TrueTime.build().withLoggingEnabled(GlobalApplication.isDebug)
                     .withConnectionTimeout(Duration.ofMinutes(1).toMillis().toInt())
                     .withCustomizedCache(object : CacheInterface {
-                        private val timeMMKV = MMKV.mmkvWithID("time", MMKV.MULTI_PROCESS_MODE)
+                        private val timeMMKV = MMKV.mmkvWithID(Constants.mmkvTimeId, MMKV.MULTI_PROCESS_MODE)
                         override fun get(key: String?, defaultValue: Long): Long = timeMMKV.getLong(key, defaultValue)
                         override fun put(key: String?, value: Long) { timeMMKV.putLong(key, value) }
                         override fun clear() { timeMMKV.clearAll() }
                     }).withNtpHost("ntp2.nim.ac.cn").initialize()
-            }
+            }*/
         setContent {
             val systemUiController = rememberSystemUiController()
             systemUiController.setSystemBarsColor(Color.Transparent, darkIcons = isSystemInDarkTheme().not())
@@ -285,15 +297,7 @@ class MainActivity : ComponentActivity() {
                                     }
                             }
                         }
-                        /*val gpsLastKnown = it.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-                    if (gpsLastKnown != null && GlobalApplication.gps?.time ?: -1L < LocationCompat.getElapsedRealtimeNanos(gpsLastKnown)) GlobalApplication.gps =
-                        GPS(
-                            gpsLastKnown.latitude.toString(),
-                            gpsLastKnown.longitude.toString(),
-                            LocationCompat.getElapsedRealtimeNanos(gpsLastKnown)
-                        )*/
                         LocationManagerCompat.requestLocationUpdates(it, LocationManager.GPS_PROVIDER, LocationRequestCompat.Builder(5000L).build(), Dispatchers.IO.asExecutor(), listener)
-                        //it.requestLocationUpdates(LocationManager.GPS_PROVIDER, 5000L, 0f, listener)
                     } else if (it.getProviders(true).contains(LocationManager.NETWORK_PROVIDER)) {
                         LocationManagerCompat.getCurrentLocation(it, LocationManager.NETWORK_PROVIDER, null, Dispatchers.IO.asExecutor()) { networkLastKnown ->
                             if (networkLastKnown != null && (GlobalApplication.gps?.time ?: -1L) < LocationCompat.getElapsedRealtimeNanos(networkLastKnown)) {
@@ -308,15 +312,7 @@ class MainActivity : ComponentActivity() {
                                     }
                             }
                         }
-                        /*val networkLastKnown = it.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-                    if (networkLastKnown != null && GlobalApplication.gps?.time ?: -1L < LocationCompat.getElapsedRealtimeNanos(networkLastKnown)) GlobalApplication.gps =
-                        GPS(
-                            networkLastKnown.latitude.toString(),
-                            networkLastKnown.longitude.toString(),
-                            LocationCompat.getElapsedRealtimeNanos(networkLastKnown)
-                        )*/
                         LocationManagerCompat.requestLocationUpdates(it, LocationManager.NETWORK_PROVIDER, LocationRequestCompat.Builder(5000L).build(), Dispatchers.IO.asExecutor(), listener)
-                        //it.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 5000L, 0f, listener)
                     } else Unit
                 }
             }
@@ -338,7 +334,6 @@ class MainActivity : ComponentActivity() {
         super.onStop()
         if (isStartingFetch) {
             getSystemService<LocationManager>()?.let { LocationManagerCompat.removeUpdates(it, listener) }
-            //getSystemService<LocationManager>()?.removeUpdates(listener)
             GoogleApiAvailability.getInstance().checkApiAvailability(locationServices)
                 .addOnSuccessListener { locationServices.removeLocationUpdates(callback) }
             getSystemService<ConnectivityManager>()?.unregisterNetworkCallback(wifiCallback)

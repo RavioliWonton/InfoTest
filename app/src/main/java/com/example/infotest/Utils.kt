@@ -20,13 +20,13 @@ import android.location.Geocoder
 import android.location.LocationManager
 import android.media.MediaDrm
 import android.net.*
+import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.os.*
 import android.os.storage.StorageManager
 import android.os.storage.StorageVolume
 import android.provider.*
 import android.telephony.*
-import android.text.format.Formatter
 import android.view.InputDevice
 import androidx.activity.ComponentActivity
 import androidx.core.app.ActivityOptionsCompat
@@ -45,7 +45,6 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.exifinterface.media.ExifInterface
 import androidx.window.layout.WindowMetricsCalculator
-import com.instacart.library.truetime.TrueTime
 import com.squareup.moshi.Moshi
 import kotlinx.coroutines.*
 import kotlinx.parcelize.Parceler
@@ -56,12 +55,12 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
-import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.net.URL
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import java.nio.charset.StandardCharsets
+import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
@@ -88,6 +87,15 @@ import kotlin.time.Duration.Companion.seconds
 
 object Constants {
     const val gaidTag = "gaid"
+    const val appSetIdTag = "appSetId"
+    const val lastLoginTag = "lastLogin"
+    const val gpsTag = "gps"
+    const val dbmTag = "dbm"
+    const val wifiCapabilitiesTag = "wifiCapabilities"
+    const val wifiPropertiesTag = "wifiProperties"
+    const val addressTag = "address"
+    val mmkvDefaultRoute = FileSystems.getDefault().separator + "mmkv"
+    const val mmkvTimeId = "time"
 }
 
 infix fun <T> Boolean.then(param: T): T? = if (this) param else null
@@ -133,8 +141,8 @@ val noExceptionContext = Dispatchers.IO + CoroutineExceptionHandler { _, _ -> }
 val currentNetworkTimeInstant: Instant = try {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
         SystemClock.currentNetworkTimeClock().instant()
-    else if (TrueTime.isInitialized())
-        TrueTime.now().toInstant()
+    else if (GlobalApplication.trueTime.hasTheTime())
+        GlobalApplication.trueTime.nowTrueOnly().toInstant()
     else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
         ((Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && appCtx.getSystemService<LocationManager>()?.gnssCapabilities?.hasOnDemandTime() == true) ||
                 appCtx.getSystemService<LocationManager>()?.isProviderEnabled(LocationManager.GPS_PROVIDER) == true))
@@ -176,19 +184,12 @@ fun String?.saveFileToDownload(fileName: String, contentResolver: ContentResolve
             model.put(MediaStore.Downloads.IS_PENDING, 0)
             contentResolver.update(uri, model, null, null)
         }
-    } else /*File(Environment.getExternalStoragePublicDirectory(
-        Environment.DIRECTORY_DOWNLOADS).absolutePath, fileName)*/
-        FileChannel.open(Paths.get(Environment.getExternalStoragePublicDirectory(
+    } else FileChannel.open(Paths.get(Environment.getExternalStoragePublicDirectory(
             Environment.DIRECTORY_DOWNLOADS).absolutePath, fileName), StandardOpenOption.CREATE_NEW,
             StandardOpenOption.WRITE, StandardOpenOption.READ).use {
             it.write(ByteBuffer.wrap(this.orEmpty().encodeToByteArray()).asReadOnlyBuffer())
             it.force(false)
         }
-        /*Files.createFile(Paths.get(Environment.getExternalStoragePublicDirectory(
-            Environment.DIRECTORY_DOWNLOADS).absolutePath, fileName)).bufferedWriter().use {
-            it.write(this.orEmpty())
-            it.flush()
-    }*/
 }
 
 suspend fun ComponentActivity.createExtensionModel() = ExtensionModel(
@@ -258,13 +259,12 @@ private fun Activity.getDeviceInfo(): DeviceInfo {
         buildId = GlobalApplication.appVersion.toString(),
         buildName = GlobalApplication.appVersionName,
         contactGroup = countContent(ContactsContract.Groups.CONTENT_URI),
-        createTime = currentNetworkTimeInstant.atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")),
+        createTime = currentNetworkTimeInstant.atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.US)),
         downloadFiles = try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
                 countContent(MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
                     MediaStore.Downloads.getContentUri(MediaStore.VOLUME_INTERNAL))
-            else /*Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).length().toInt()*/
-                Paths.get(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).absolutePath)
+            else Paths.get(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).absolutePath).normalize()
                     .walk(PathWalkOption.INCLUDE_DIRECTORIES).count()
         } catch (e: Exception) { 0 },
         imagesExternal = countContent(imageExternalUri),
@@ -274,8 +274,7 @@ private fun Activity.getDeviceInfo(): DeviceInfo {
         videoInternal = countContent(videoInternalUri),
         gpsAdid = GlobalApplication.gaid.orEmpty(),
         deviceId = try {
-            if (telephonyManager?.let { TelephonyManagerCompat.getImei(it) }?.isNotBlank() == true)
-                TelephonyManagerCompat.getImei(telephonyManager)
+            if (getDeviceIdCompat()?.isNotBlank() == true) getDeviceIdCompat()
             else if (getUniqueMediaDrmID().isNotBlank()) getUniqueMediaDrmID()
             else if (Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)?.let { it.isNotBlank() && it != "9774d56d682e549c" } == true)
                 Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
@@ -286,7 +285,6 @@ private fun Activity.getDeviceInfo(): DeviceInfo {
         ip = try {
             Scanner(URL("https://api.ipify.org").openStream(), StandardCharsets.UTF_8.name())
                 .useDelimiter("\\A").use { it.hasNext().then(it.next()).orEmpty() }
-            //appCtx.getSystemService<WifiManager>()?.connectionInfo?.ipAddress?.let { Formatter.formatIpAddress(it) }.orEmpty()
         } catch (e: Exception) { "" },
         memory = try {
             ActivityManager.MemoryInfo().apply {
@@ -323,14 +321,7 @@ private fun Activity.getDeviceInfo(): DeviceInfo {
         imsi = try {
             telephonyManager?.subscriberId?.takeIf { it.isNotBlank() } ?: "-1"
         } catch (e: Exception) { "-1" },
-        mac = try {
-            (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
-                NetworkInterface.getNetworkInterfaces().asSequence()
-                    .filter { it.name == "wlan0" }.firstOrNull()?.hardwareAddress?.formatMac()
-                else wifiManager?.connectionInfo?.macAddress)?.takeIf {
-                    it.isNotBlank() && it != "02:00:00:00:00:00"
-            }.orEmpty()
-        } catch (e: Exception) { "" },
+        mac = getWifiMac(),
         sdCard = sdCardInfo.first, unUseSdCard = sdCardInfo.second,
         resolution = "${currentPoint.width() - insets.left - insets.right}x${currentPoint.height() - insets.bottom - insets.top}",
         idfa = "", idfv = "",
@@ -338,30 +329,38 @@ private fun Activity.getDeviceInfo(): DeviceInfo {
             telephonyManager?.let { TelephonyManagerCompat.getImei(it) }
         } catch (e: Exception) { null } ?: Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID).orEmpty(),
         imeiHistory = try {
-            val defaultSubscriptionId = telephonyManager?.let { TelephonyManagerCompat.getSubscriptionId(it) } ?: Int.MAX_VALUE
-            val defaultSlotIndex = SubscriptionManagerCompat.getSlotIndex(defaultSubscriptionId)
-            (getSystemService<SubscriptionManager>()?.activeSubscriptionInfoList?.mapNotNull {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) telephonyManager?.getImei(it.simSlotIndex)
-                else telephonyManager?.getDeviceId(it.simSlotIndex)
-            } ?: listOf((if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-                telephonyManager?.getImei(SubscriptionManagerCompat.getSlotIndex(defaultSlotIndex))
-            else telephonyManager?.getDeviceId(SubscriptionManagerCompat.getSlotIndex(defaultSlotIndex))).orEmpty()))
-                .filter { it.isBlank() }.toTypedArray()
+            val subscriptionManager = getSystemService<SubscriptionManager>()
+            val defaultSubscriptionId = telephonyManager?.let { TelephonyManagerCompat.getSubscriptionId(it) }
+                ?: if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) SubscriptionManager.getDefaultSubscriptionId()
+                else SubscriptionManager.INVALID_SUBSCRIPTION_ID
+            (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+                subscriptionManager?.allSubscriptionInfoList
+                    ?.filter { SubscriptionManager.isValidSubscriptionId(it.subscriptionId) }
+                    ?.mapNotNull { telephonyManager?.getImeiCompat(it.simSlotIndex).orEmpty() }
+            else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1)
+                subscriptionManager?.activeSubscriptionInfoList
+                    ?.mapNotNull { telephonyManager?.getImeiCompat(it.simSlotIndex).orEmpty() }
+            else SubscriptionManagerCompat.getSlotIndex(defaultSubscriptionId)
+                .takeIf { it != SubscriptionManager.INVALID_SIM_SLOT_INDEX }
+                ?.let { listOf(telephonyManager?.getImeiCompat(it).orEmpty()) })
+            ?.filter { it.isBlank() }?.toTypedArray() ?: emptyArray()
         } catch (e: Exception) {
             try {
-                val defaultSubscriptionId = telephonyManager?.let { TelephonyManagerCompat.getSubscriptionId(it) } ?: Int.MAX_VALUE
-                val defaultSlotIndex = SubscriptionManagerCompat.getSlotIndex(defaultSubscriptionId)
-                listOf((if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-                    telephonyManager?.getImei(defaultSlotIndex)
-                else telephonyManager?.getDeviceId(defaultSlotIndex)).orEmpty()).filter { it.isBlank() }.toTypedArray()
+                val defaultSubscriptionId = telephonyManager?.let { TelephonyManagerCompat.getSubscriptionId(it) }
+                    ?: if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) SubscriptionManager.getDefaultSubscriptionId()
+                        else SubscriptionManager.INVALID_SUBSCRIPTION_ID
+                SubscriptionManagerCompat.getSlotIndex(defaultSubscriptionId)
+                    .takeIf { it != SubscriptionManager.INVALID_SIM_SLOT_INDEX }
+                    ?.let { defaultSlotIndex -> listOf(telephonyManager?.getImeiCompat(defaultSlotIndex).orEmpty())
+                .filter { it.isBlank() }.toTypedArray() } ?: emptyArray()
             } catch (ex: Exception) { emptyArray() } },
         brand = Build.BRAND.takeIf { it != Build.UNKNOWN }.orEmpty()
     )
 }
 
 private fun Context.getSDCardPair(): Pair<String, String> = try {
-    getSDCardInfo().firstOrNull { it.isRemovable && it.state in listOf(Environment.MEDIA_MOUNTED, Environment.MEDIA_MOUNTED_READ_ONLY)
-            && /*File(it.path).exists()*/Files.exists(it.path) }?.path?.let {
+    getSDCardInfo().firstOrNull { it.isRemovable && it.state in listOf(Environment.MEDIA_MOUNTED,
+        Environment.MEDIA_MOUNTED_READ_ONLY) && Files.exists(it.path) }?.path?.let {
         val stat = StatFs(it.absolutePathString())
         /*Formatter.formatFileSize(this, */(stat.blockSizeLong * stat.blockCountLong).toString()/*)*/ to
             /*Formatter.formatFileSize(this,*/ (stat.blockSizeLong * stat.availableBlocksLong).toString()
@@ -473,7 +472,7 @@ private fun MutableList<ImageInfo>.processCursor(cursor: Cursor?, contentResolve
                                 .toInstant(ZonedDateTime.now().offset).toEpochMilli().toString()
                         })?.toString().orEmpty(),
                     createTime = currentNetworkTimeInstant.toEpochMilli().toString(),
-                    orientation = exif?.getAttribute(ExifInterface.TAG_ORIENTATION).orEmpty(),
+                    orientation = exif?.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_UNDEFINED)?.toString().orEmpty(),
                     xResolution = exif?.getAttribute(ExifInterface.TAG_X_RESOLUTION).orEmpty(),
                     yResolution = exif?.getAttribute(ExifInterface.TAG_Y_RESOLUTION).orEmpty(),
                     altitude = exif?.getAltitude(0.0)?.toString().orEmpty(),
@@ -485,7 +484,7 @@ private fun MutableList<ImageInfo>.processCursor(cursor: Cursor?, contentResolve
                     gpsProcessingMethod = exif?.getAttribute(ExifInterface.TAG_GPS_PROCESSING_METHOD).orEmpty(),
                     flash = exif?.getAttribute(ExifInterface.TAG_FLASH).orEmpty(),
                     takeTime = cursor.getLongOrNull(cursor.getColumnIndex(MediaStore.Images.ImageColumns.DATE_ADDED))
-                        ?.toString().orEmpty()/* ?: attributes?.createdAtMillis?.toString().orEmpty()*/
+                        ?.toString().orEmpty()
                 ))
             }
         }
@@ -503,7 +502,7 @@ private fun Context.getGeneralData(): GeneralData {
             ?: ConfigurationCompat.getLocales(Resources.getSystem().configuration).get(0)
     } catch (e: Exception) { Resources.getSystem().configuration.locale }
     val networkType = try {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             val capabilities = connectivityManager?.getNetworkCapabilities(connectivityManager.activeNetwork)
             if (capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true) "other"//"ethernet"
             else if (capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) "wifi"
@@ -556,7 +555,7 @@ private fun Context.getGeneralData(): GeneralData {
     } catch (e: Exception) { "none" }
     return GeneralData(
         androidId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID).orEmpty(),
-        currentSystemTime = currentNetworkTimeInstant.toString(),
+        currentSystemTime = currentNetworkTimeInstant.toEpochMilli().toString(),
         elapsedRealtime = SystemClock.elapsedRealtime().toString(),
         gaid = GlobalApplication.gaid.orEmpty(),
         imei = try {
@@ -565,7 +564,8 @@ private fun Context.getGeneralData(): GeneralData {
         isUsbDebug = (Settings.Global.getInt(contentResolver,
             Settings.Global.ADB_ENABLED, 0) > 0).toString(),
         isUsingProxyPort = try {
-            ((!System.getProperty("http.proxyHost").isNullOrEmpty() &&
+            (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && connectivityManager?.defaultProxy?.isValid == true ||
+            (!System.getProperty("http.proxyHost").isNullOrEmpty() &&
                     (System.getProperty("http.proxyPort")?.toInt() ?: -1) != -1)).toString()
         } catch (e: Exception) { false.toString() },
         isUsingVpn = try {
@@ -583,11 +583,7 @@ private fun Context.getGeneralData(): GeneralData {
         localeDisplayLanguage = locale?.displayLanguage.orEmpty(),
         localeISO3Country = locale?.isO3Country.orEmpty(),
         localeISO3Language = locale?.isO3Language.orEmpty(),
-        mac = try {
-            NetworkInterface.getNetworkInterfaces().asSequence()
-                .firstOrNull { it.name == "wlan0" }?.hardwareAddress?.formatMac()
-                ?.takeIf { it.isNotBlank() && it != "02:00:00:00:00:00" }.orEmpty()
-        } catch (e: Exception) { "" },
+        mac = getWifiMac(),
         networkOperatorName = try {
             telephonyManager?.networkOperatorName.orEmpty()
         } catch (e: Exception) { "" },
@@ -623,12 +619,13 @@ private fun Context.getGeneralData(): GeneralData {
 private fun Context.getBatteryStatus(): BatteryStatus {
     val manager = getSystemService<BatteryManager>()
     val chargeStatus = ContextCompat.registerReceiver(this, null, IntentFilter(Intent.ACTION_BATTERY_CHANGED), ContextCompat.RECEIVER_EXPORTED)
+    val batteryCapacity = manager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)?.takeIf { it != Int.MIN_VALUE }?.div(1000f)?.toDouble() ?: getBatteryCapacityByHook()
     return BatteryStatus(
         batteryLevel = (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP)
             manager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-                else chargeStatus?.getIntExtra(BatteryManager.EXTRA_LEVEL, 0))
-            ?.let { (getBatteryCapacityByHook() * it / 100).toString() }.orEmpty(),
-        batteryMax = getBatteryCapacityByHook().toString(),
+        else chargeStatus?.getIntExtra(BatteryManager.EXTRA_LEVEL, 0))?.let {
+            (batteryCapacity * it / 100).toString() }.orEmpty(),
+        batteryMax = batteryCapacity.toString(),
         batteryPercent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP)
                 manager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
             else -1,
@@ -683,10 +680,17 @@ private fun getNetworkInfo(): Network {
     } else wifiManager?.startScan()
     return Network(
         ip = try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
-                GlobalApplication.currentWifiLinkProperties?.linkAddresses
-                    ?.firstOrNull { it.address is Inet4Address || it.address.address.size == 4 }?.address?.hostAddress.orEmpty()
+            connectivityManager?.getLinkProperties(connectivityManager.activeNetwork)
+                ?.linkAddresses?.firstOrNull()?.address?.hostAddress
+            /*if (connectivityManager?.getNetworkCapabilities(connectivityManager.activeNetwork)
+                ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+                    GlobalApplication.currentWifiLinkProperties?.linkAddresses?.firstOrNull()?.address?.hostAddress
                 else wifiManager?.connectionInfo?.ipAddress?.let { Formatter.formatIpAddress(it) }.orEmpty()
+            }
+            else NetworkInterface.getNetworkInterfaces().asSequence()
+                .firstOrNull { networkInterface -> networkInterface.isUp && networkInterface.inetAddresses.toList().none { it.isLoopbackAddress } }
+                ?.inetAddresses?.asSequence()?.firstOrNull { !it.isLoopbackAddress }?.hostAddress.orEmpty()*/
         } catch (e: Exception) { "" },
         configuredWifi = wifiManager?.scanResults?.mapNotNull { Wifi(
             bssid = it.BSSID, mac = it.BSSID,
@@ -696,14 +700,13 @@ private fun getNetworkInfo(): Network {
         currentWifi = try {
             val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
                     GlobalApplication.currentWifiCapabilities ?: wifiManager?.connectionInfo
+                else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+                    connectivityManager?.getNetworkCapabilities(connectivityManager.allNetworks
+                    .firstOrNull { connectivityManager.getNetworkCapabilities(it)
+                        ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true })?.transportInfo as WifiInfo? ?: wifiManager?.connectionInfo
                 else wifiManager?.connectionInfo
             val extraInfo = connectivityManager?.getNetworkInfo(ConnectivityManager.TYPE_WIFI)?.extraInfo
-            Wifi(bssid = info?.bssid.orEmpty(),
-                mac = info?.bssid.orEmpty()/*(Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP).then(
-                    val address = NetworkInterface.getNetworkInterfaces().asSequence()
-                        .firstOrNull { it.name == "wlan0" }?.hardwareAddress?.formatMac()
-                        ?.takeIf { it?.isNotBlank() == true } ?: "02:00:00:00:00:00"
-                ) ?: wifiManager?.connectionInfo?.macAddress*/,
+            Wifi(bssid = info?.bssid.orEmpty(), mac = info?.bssid.orEmpty(),
                 ssid = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && extraInfo?.isNotBlank() == true) extraInfo else info?.ssid.orEmpty(),
                 name = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && extraInfo?.isNotBlank() == true) extraInfo else info?.ssid.orEmpty())
         } catch (e: Exception) { null },
@@ -713,10 +716,10 @@ private fun getNetworkInfo(): Network {
 
 private fun Context.getStorageInfo(): Storage {
     val internalStatfs = try {
-        StatFs(Environment.getDataDirectory().path)
+        StatFs(Environment.getDataDirectory().absolutePath)
     } catch (e: Exception) { null }
     val externalStatfs = try {
-        StatFs(Environment.getExternalStorageDirectory().path)
+        StatFs(Environment.getExternalStorageDirectory().absolutePath)
     } catch (e: Exception) { null }
     val memoryInfo = ActivityManager.MemoryInfo().apply {
         try {
@@ -728,10 +731,8 @@ private fun Context.getStorageInfo(): Storage {
         appMaxMemory = try { Runtime.getRuntime().maxMemory().toString() } catch (e: Exception) { "" },
         appTotalMemory = try { Runtime.getRuntime().totalMemory().toString() } catch (e: Exception) { "" },
         containSd = try {
-            (Environment.getExternalStorageState() in
-                    listOf(Environment.MEDIA_MOUNTED, Environment.MEDIA_MOUNTED_READ_ONLY)
-                    /*EnvironmentCompat.getStorageState(Environment
-                    .getExternalStorageDirectory())*/).toInt()?.toString() ?: "0"
+            (Environment.getExternalStorageState() in listOf(Environment.MEDIA_MOUNTED,
+                Environment.MEDIA_MOUNTED_READ_ONLY)).toInt()?.toString() ?: "0"
         } catch (e: Exception) { "0" },
         extraSd = try {
             (ContextCompat.getExternalFilesDirs(this, null).filterNotNull()
@@ -774,19 +775,15 @@ private fun Context.getOtherData(): OtherData = OtherData(
 )
 
 private fun Context.getIsRooted() = try {
-    val value1 = (Build.TAGS != null) && Build.TAGS.contains("test-keys")
+    val value1 = (Build.TAGS != Build.UNKNOWN) && Build.TAGS.contains("test-keys")
     val value2 = arrayOf("/system/bin/", "/system/xbin/", "/sbin/", "/system/sd/xbin/",
         "/system/bin/failsafe/", "/data/local/xbin/", "/data/local/bin/",
         "/data/local/", "/system/sbin/", "/usr/bin/", "/vendor/bin/"
-    ).any { /*File(it, "su").exists()*/Paths.get(it, "su").exists(LinkOption.NOFOLLOW_LINKS) } ||
-            /*File("/system/app/Superuser.apk").exists()*/Paths.get("/system/app/Superuser.apk").exists(LinkOption.NOFOLLOW_LINKS)
+    ).any { Paths.get(it, "su").exists(LinkOption.NOFOLLOW_LINKS) ||
+            Paths.get("/system/app/Superuser.apk").exists(LinkOption.NOFOLLOW_LINKS) }
     val value3 = try {
-        val process = Runtime.getRuntime().exec(arrayOf("/system/xbin/which", "su"))
-        process.inputStream.use {
-            val available = it.available() > 0
-            process.destroy()
-            available
-        }
+        Runtime.getRuntime().exec(arrayOf("/system/xbin/which", "su"))
+            .inputStream.use { it.available() > 0 }
     } catch (e: Exception) { false }
     (value1 || value2 || value3).toInt()
 } catch (e: Exception) { 0 }
@@ -860,7 +857,8 @@ private fun Context.getAddressBook(): List<Contact> = try { mutableListOf<Contac
 private fun Context.getAppList(): List<App> = try {
     (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
         packageManager.getInstalledPackages(PackageManager.PackageInfoFlags.of(PackageManager.MATCH_UNINSTALLED_PACKAGES.toLong()))
-    else packageManager.getInstalledPackages(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) PackageManager.MATCH_UNINSTALLED_PACKAGES else 0)).mapNotNull {
+    else packageManager.getInstalledPackages(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N)
+        PackageManager.MATCH_UNINSTALLED_PACKAGES else PackageManager.GET_UNINSTALLED_PACKAGES)).mapNotNull {
         App(
             name = try { packageManager.getApplicationLabel(it.applicationInfo).toString().orEmpty() } catch (e: Exception) { "" },
             packageName = it.packageName,
@@ -978,14 +976,14 @@ private fun Context.getStoragePair(): Pair<Long, Long> {
                 free += it?.directoryCompat?.fileStore()?.usableSpace ?: 0L
             }
         } catch (e: Exception) {
-            StatFs(Environment.getExternalStorageDirectory().path).let {
+            StatFs(Environment.getExternalStorageDirectory().absolutePath).let {
                 total = it.blockCountLong * it.blockSizeLong
                 free = it.freeBlocksLong * it.blockSizeLong
             }
         }
     } else {
         try {
-            val volumeClazz = Class.forName("android.os.storage.StorageVolume")
+            val volumeClazz = classLoader.loadClass("android.os.storage.StorageVolume")
             val getPathMethod = volumeClazz.getDeclaredMethod("getPath")
             val getVolumeList = StorageManager::class.java.getDeclaredMethod("getVolumeList")
             getVolumeList.invoke(storageManager)?.let {
@@ -996,7 +994,7 @@ private fun Context.getStoragePair(): Pair<Long, Long> {
                 }
             }
         } catch (e: Exception) {
-            StatFs(Environment.getExternalStorageDirectory().path).let {
+            StatFs(Environment.getExternalStorageDirectory().absolutePath).let {
                 total = it.blockCountLong * it.blockSizeLong
                 free = it.freeBlocksLong * it.blockSizeLong
             }
@@ -1029,7 +1027,7 @@ private val StorageVolume.directoryCompat: Path?
         else try {
             val getPathMethod = javaClass.getDeclaredMethod("getPath")
             /*File(getPathMethod.invoke(this) as String)*/getPathMethod.invoke(this) as String
-        } catch (_: Exception) { null })
+        } catch (_: Exception) { null }).normalize()
 
 @Throws(IOException::class)
 private fun InputStream.toExifInterface(): ExifInterface? = try {
@@ -1041,38 +1039,11 @@ private fun InputStream.toExifInterface(): ExifInterface? = try {
 
 @SuppressLint("PrivateApi")
 private fun getBatteryCapacityByHook(): Double = try {
-    Class.forName("com.android.internal.os.PowerProfile").let {
+    ClassLoader.getSystemClassLoader().loadClass("com.android.internal.os.PowerProfile").let {
         it.getMethod("getBatteryCapacity")
             .invoke(it.getDeclaredConstructor(Context::class.java).newInstance(appCtx)) as Double
     }
 } catch (e: Exception) { 0.0 }
-
-private fun ByteArray?.formatMac(): String = try {
-    takeIf { this?.size == 6 }?.joinToString(separator = ":") {
-        String.format("%02x", it)
-    }.orEmpty()
-    /*val HEX_DIGITS = byteArrayOf(
-        '0'.toByte(), '1'.toByte(), '2'.toByte(), '3'.toByte(), '4'.toByte(), '5'.toByte(),
-        '6'.toByte(), '7'.toByte(), '8'.toByte(), '9'.toByte(), 'A'.toByte(), 'B'.toByte(),
-        'C'.code.toByte(), 'D'.toByte(), 'E'.toByte(), 'F'.toByte()
-    )
-    if (this != null || this?.size?.equals(6) == true) {
-        val mac = ByteArray(17)
-        var p = 0
-
-        for (i in 0 until 6) {
-            val b = get(i)
-            mac[p] = HEX_DIGITS[b.toInt() and 0xF0 shr 4]
-            mac[p + 1] = HEX_DIGITS[b.toInt() and 0xF]
-
-            if (i != 5) {
-                mac[p + 2] = ':'.toByte()
-                p += 3
-            }
-        }
-        String(mac)
-    } else ""*/
-} catch (e: Exception) { "" }
 
 @SuppressLint("HardwareIds")
 fun Context.getUniquePseudoId(): String = UUID.randomUUID().toString()/*try {
@@ -1089,19 +1060,18 @@ fun Context.getUniquePseudoId(): String = UUID.randomUUID().toString()/*try {
         // api >= 9 reflect to get serial
         Build::class.java.getField("SERIAL").get(null)?.toString() ?: "serial"
     } catch (e: Exception) {
-        
         // must init serial, use itself
         "serial"
     }
     UUID(ObjectsCompat.hashCode(szDevIdShort).toLong(), ObjectsCompat.hashCode(serial).toLong()).toString() + id
 } catch (e: Exception) {
-    
     ""
 }*/
 
 @OptIn(ExperimentalUnsignedTypes::class)
 private fun Context.getUniqueMediaDrmID(): String = try {
     MediaDrm(UUID(-0x121074568629b532L, -0x5c37d8232ae2de13L)).use {
+        //Log.d("TAG", "getUniqueMediaDrmID: ${it.getPropertyString(MediaDrm.PROPERTY_DEVICE_UNIQUE_ID)}")
         val widevineId = it.getPropertyByteArray(MediaDrm.PROPERTY_DEVICE_UNIQUE_ID)
         val md = MessageDigest.getInstance("SHA-256")
         md.update(widevineId)
@@ -1109,9 +1079,37 @@ private fun Context.getUniqueMediaDrmID(): String = try {
             ubyte.toString(radix = 16).padStart(2, '0')
         }
     }
-} catch (_: Exception) {
-    ""
+} catch (e: Exception) { "" }
+
+private fun Context.getDeviceIdCompat() = getSystemService<TelephonyManager>()?.let {
+    try {
+        if (packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY_GSM))
+            TelephonyManagerCompat.getImei(it)
+        else if (packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY_CDMA))
+            if (Build.VERSION.SDK_INT>= Build.VERSION_CODES.Q) it.meid else TelephonyManagerCompat.getImei(it)
+        else ""
+    } catch (_: Exception) { "" }
 }
+
+private fun TelephonyManager.getImeiCompat(slotIndex: Int) =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+        getImei(slotIndex)
+    else getDeviceId(slotIndex)
+
+private fun Context.getWifiMac() = try {
+    (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
+        NetworkInterface.getNetworkInterfaces().asSequence()
+            .firstOrNull { it.name.equals("wlan0", true) }
+            ?.hardwareAddress?.formatMac().orEmpty()
+        else getSystemService<WifiManager>()?.connectionInfo?.macAddress)
+    ?.takeIf { it.isNotBlank() && it != "02:00:00:00:00:00" }.orEmpty()
+} catch (e: Exception) { "" }
+
+private fun ByteArray?.formatMac(): String = try {
+    takeIf { this?.size == 6 }?.joinToString(separator = ":") {
+        String.format("%02x", it)
+    }.orEmpty()
+} catch (e: Exception) { "" }
 
 private fun Context.hookSystemPropertiesSimulator(): Boolean = try {
     classLoader.loadClass("android.os.SystemProperties").let {
