@@ -45,6 +45,8 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.exifinterface.media.ExifInterface
 import androidx.window.layout.WindowMetricsCalculator
+import com.google.android.gms.common.ConnectionResult
+import com.google.android.gms.common.GoogleApiAvailabilityLight
 import com.squareup.moshi.Moshi
 import kotlinx.coroutines.*
 import kotlinx.parcelize.Parceler
@@ -276,6 +278,7 @@ private fun Activity.getDeviceInfo(): DeviceInfo {
         deviceId = try {
             if (getDeviceIdCompat()?.isNotBlank() == true) getDeviceIdCompat()
             else if (getUniqueMediaDrmID().isNotBlank()) getUniqueMediaDrmID()
+            else if (getGSFId()?.isNotBlank() == true) getGSFId()
             else if (Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)?.let { it.isNotBlank() && it != "9774d56d682e549c" } == true)
                 Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
             else ""//getUniquePseudoId()
@@ -1081,22 +1084,33 @@ private fun Context.getUniqueMediaDrmID(): String = try {
     }
 } catch (e: Exception) { "" }
 
-private fun Context.getDeviceIdCompat() = getSystemService<TelephonyManager>()?.let {
+private fun Context.getDeviceIdCompat(): String = getSystemService<TelephonyManager>()?.let {
     try {
         if (packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY_GSM))
-            TelephonyManagerCompat.getImei(it)
+            TelephonyManagerCompat.getImei(it).orEmpty()
         else if (packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY_CDMA))
-            if (Build.VERSION.SDK_INT>= Build.VERSION_CODES.Q) it.meid else TelephonyManagerCompat.getImei(it)
+            if (Build.VERSION.SDK_INT>= Build.VERSION_CODES.Q) it.meid else TelephonyManagerCompat.getImei(it).orEmpty()
         else ""
     } catch (_: Exception) { "" }
-}
+} ?: ""
 
-private fun TelephonyManager.getImeiCompat(slotIndex: Int) =
+private fun Context.getGSFId(): String = try {
+    if (GoogleApiAvailabilityLight.getInstance()
+            .isGooglePlayServicesAvailable(this) == ConnectionResult.SUCCESS) {
+        ContentResolverCompat.query(contentResolver, Uri.parse("content://com.google.android.gsf.gservices"),
+            arrayOf("android_id"), null, null, null, null).use {
+            it?.getLongOrNull(it.getColumnIndex("android_id"))?.toULong()?.toString(16).orEmpty()
+        }
+    } else ""
+} catch (e: Exception) { "" }
+
+@Throws(SecurityException::class)
+private fun TelephonyManager.getImeiCompat(slotIndex: Int): String =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
         getImei(slotIndex)
     else getDeviceId(slotIndex)
 
-private fun Context.getWifiMac() = try {
+private fun Context.getWifiMac(): String = try {
     (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
         NetworkInterface.getNetworkInterfaces().asSequence()
             .firstOrNull { it.name.equals("wlan0", true) }
