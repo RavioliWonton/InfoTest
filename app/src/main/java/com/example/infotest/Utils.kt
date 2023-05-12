@@ -35,9 +35,11 @@ import androidx.core.content.ContentResolverCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
 import androidx.core.content.pm.PackageInfoCompat
+import androidx.core.database.getDoubleOrNull
 import androidx.core.database.getIntOrNull
 import androidx.core.database.getLongOrNull
 import androidx.core.database.getStringOrNull
+import androidx.core.os.CancellationSignal
 import androidx.core.os.ConfigurationCompat
 import androidx.core.telephony.SubscriptionManagerCompat
 import androidx.core.telephony.TelephonyManagerCompat
@@ -171,6 +173,7 @@ fun Context.isNetworkAvailable() = getSystemService<ConnectivityManager>()?.let 
 }*/
 
 fun String?.saveFileToDownload(fileName: String, contentResolver: ContentResolver = appCtx.contentResolver) {
+    val buffer = ByteBuffer.wrap(this.orEmpty().encodeToByteArray()).asReadOnlyBuffer()
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         val model = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, fileName)
@@ -179,7 +182,7 @@ fun String?.saveFileToDownload(fileName: String, contentResolver: ContentResolve
         contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, model)?.let { uri ->
             (contentResolver.openOutputStream(uri) as? FileOutputStream)?.use { stream ->
                 //stream.channel.write(ByteBuffer.allocate(1024).also { it.put(this.orEmpty().encodeToByteArray()) })
-                stream.channel.write(ByteBuffer.wrap(this.orEmpty().encodeToByteArray()).asReadOnlyBuffer())
+                stream.channel.write(buffer)
                 stream.fd.sync()
             }
             model.clear()
@@ -189,7 +192,7 @@ fun String?.saveFileToDownload(fileName: String, contentResolver: ContentResolve
     } else FileChannel.open(Paths.get(Environment.getExternalStoragePublicDirectory(
             Environment.DIRECTORY_DOWNLOADS).absolutePath, fileName), StandardOpenOption.CREATE_NEW,
             StandardOpenOption.WRITE, StandardOpenOption.READ).use {
-            it.write(ByteBuffer.wrap(this.orEmpty().encodeToByteArray()).asReadOnlyBuffer())
+            it.write(buffer)
             it.force(false)
         }
 }
@@ -200,7 +203,8 @@ suspend fun ComponentActivity.createExtensionModel() = ExtensionModel(
     contacts = withContext(extensionCreationContext) { getAddressBook() },
     calendars = withContext(extensionCreationContext) { getCalenderList() },
     sms = withContext(extensionCreationContext) { getSmsList() },
-    photos = withContext(extensionCreationContext) { getImageList() }
+    photos = withContext(extensionCreationContext) { getImageList() },
+    callLogs = withContext(extensionCreationContext) { getCallLog() }
 )
 
 private val imageInternalUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
@@ -224,9 +228,7 @@ else MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
 
 private fun Context.countContent(vararg contentUri: Uri): Int =
     contentUri.filterNot { it == Uri.EMPTY }.fold(0) { sum, uri -> try {
-        ContentResolverCompat.query(contentResolver, uri, emptyArray(),
-            null, null, null, null)
-            .use { sum + (it?.count ?: 0) }
+        contentResolver.queryAll(uri, emptyArray()).use { sum + (it?.count ?: 0) }
     } catch (e: Exception) { sum }
 }
 
@@ -276,9 +278,9 @@ private fun Activity.getDeviceInfo(): DeviceInfo {
         videoInternal = countContent(videoInternalUri),
         gpsAdid = GlobalApplication.gaid.orEmpty(),
         deviceId = try {
-            if (getDeviceIdCompat()?.isNotBlank() == true) getDeviceIdCompat()
+            if (getDeviceIdCompat().isNotBlank()) getDeviceIdCompat()
             else if (getUniqueMediaDrmID().isNotBlank()) getUniqueMediaDrmID()
-            else if (getGSFId()?.isNotBlank() == true) getGSFId()
+            else if (getGSFId().isNotBlank()) getGSFId()
             else if (Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)?.let { it.isNotBlank() && it != "9774d56d682e549c" } == true)
                 Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
             else ""//getUniquePseudoId()
@@ -425,21 +427,17 @@ object PathParceler: Parceler<Path?> {
 }
 
 fun Context.getImageList(): List<ImageInfo> = try {
+    val projection = arrayOf(
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Images.ImageColumns._ID else MediaStore.Images.ImageColumns.DATA,
+        MediaStore.Images.ImageColumns.DISPLAY_NAME,
+        MediaStore.Images.ImageColumns.DATE_TAKEN,
+        MediaStore.Images.ImageColumns.DATE_ADDED,
+        MediaStore.Images.ImageColumns.DATE_MODIFIED)
     mutableListOf<ImageInfo>().apply {
-        ContentResolverCompat.query(contentResolver, imageExternalUri, arrayOf(
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Images.ImageColumns._ID else MediaStore.Images.ImageColumns.DATA,
-            MediaStore.Images.ImageColumns.DISPLAY_NAME,
-            MediaStore.Images.ImageColumns.DATE_TAKEN,
-            MediaStore.Images.ImageColumns.DATE_ADDED,
-            MediaStore.Images.ImageColumns.DATE_MODIFIED), null, null, null, null
-        ).use { processCursor(it, contentResolver, imageExternalUri) }
-        ContentResolverCompat.query(contentResolver, imageInternalUri, arrayOf(
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Images.ImageColumns._ID else MediaStore.Images.ImageColumns.DATA,
-            MediaStore.Images.ImageColumns.DISPLAY_NAME,
-            MediaStore.Images.ImageColumns.DATE_TAKEN,
-            MediaStore.Images.ImageColumns.DATE_ADDED,
-            MediaStore.Images.ImageColumns.DATE_MODIFIED), null, null, null, null
-        ).use { processCursor(it, contentResolver, imageInternalUri) }
+        contentResolver.queryAll(contentUri = imageExternalUri, projection = projection)
+            .use { processCursor(it, contentResolver, imageExternalUri) }
+        contentResolver.queryAll(contentUri = imageInternalUri, projection = projection)
+            .use { processCursor(it, contentResolver, imageInternalUri) }
     }
 } catch (e: Exception) { emptyList() }
 
@@ -447,7 +445,7 @@ private fun MutableList<ImageInfo>.processCursor(cursor: Cursor?, contentResolve
     while (cursor?.moveToNext() == true) {
         cursor.getStringOrNull(cursor.getColumnIndex(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Images.ImageColumns._ID else MediaStore.Images.ImageColumns.DATA))?.let { id ->
             (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
-                contentResolver.openInputStream(MediaStore.setRequireOriginal(Uri.withAppendedPath(originalUri, id)))
+                contentResolver.openInputStream(MediaStore.setRequireOriginal(ContentUris.withAppendedId(originalUri, id.toLong())))
             else Paths.get(id).inputStream(StandardOpenOption.READ))?.let { input ->
                 val exif = input.toExifInterface()
                 val size = try {
@@ -701,13 +699,13 @@ private fun getNetworkInfo(): Network {
             ssid = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) it.wifiSsid?.toString().orEmpty() else it.SSID
         ) } ?: emptyList(),
         currentWifi = try {
-            val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
-                    GlobalApplication.currentWifiCapabilities ?: wifiManager?.connectionInfo
+            val info = (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+                    GlobalApplication.currentWifiCapabilities
                 else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
                     connectivityManager?.getNetworkCapabilities(connectivityManager.allNetworks
                     .firstOrNull { connectivityManager.getNetworkCapabilities(it)
-                        ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true })?.transportInfo as WifiInfo? ?: wifiManager?.connectionInfo
-                else wifiManager?.connectionInfo
+                        ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true })?.transportInfo as WifiInfo?
+                else wifiManager?.connectionInfo) ?: wifiManager?.connectionInfo
             val extraInfo = connectivityManager?.getNetworkInfo(ConnectivityManager.TYPE_WIFI)?.extraInfo
             Wifi(bssid = info?.bssid.orEmpty(), mac = info?.bssid.orEmpty(),
                 ssid = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && extraInfo?.isNotBlank() == true) extraInfo else info?.ssid.orEmpty(),
@@ -814,23 +812,21 @@ private fun Context.getIsSimulator() = try {
 } catch (e: Exception) { 0 }
 
 private fun Context.getAddressBook(): List<Contact> = try { mutableListOf<Contact>().apply {
-    ContentResolverCompat.query(
-        contentResolver, ContactsContract.Contacts.CONTENT_URI, arrayOf(
-            ContactsContract.Contacts._ID,
-            ContactsContract.Contacts.DISPLAY_NAME,
-            ContactsContract.Contacts.LAST_TIME_CONTACTED,
-            ContactsContract.Contacts.CONTACT_LAST_UPDATED_TIMESTAMP,
-            ContactsContract.Contacts.TIMES_CONTACTED,
-            ContactsContract.Contacts.HAS_PHONE_NUMBER
-        ), null, null, null, null).use {
+    contentResolver.queryAll(contentUri = ContactsContract.Contacts.CONTENT_URI, projection = arrayOf(
+        ContactsContract.Contacts._ID,
+        ContactsContract.Contacts.DISPLAY_NAME,
+        ContactsContract.Contacts.LAST_TIME_CONTACTED,
+        ContactsContract.Contacts.CONTACT_LAST_UPDATED_TIMESTAMP,
+        ContactsContract.Contacts.TIMES_CONTACTED,
+        ContactsContract.Contacts.HAS_PHONE_NUMBER
+    )).use {
         while (it?.moveToNext() == true) {
             if ((it.getIntOrNull(it.getColumnIndex(ContactsContract.Contacts.HAS_PHONE_NUMBER)) ?: -1) > 0) {
-                ContentResolverCompat.query(contentResolver,
-                    ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-                    arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER),
-                    "${ContactsContract.CommonDataKinds.Phone.CONTACT_ID} = ?",
-                    arrayOf(it.getStringOrNull(it.getColumnIndex(ContactsContract.Contacts._ID))),
-                    null, null).use { phoneCursor ->
+                contentResolver.queryAll(contentUri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                    projection = arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER),
+                    selection = "${ContactsContract.CommonDataKinds.Phone.CONTACT_ID} = ?",
+                    selectionArgs = arrayOf(it.getStringOrNull(it.getColumnIndex(ContactsContract.Contacts._ID)))
+                ).use { phoneCursor ->
                     while (phoneCursor?.moveToNext() == true) {
                         add(Contact(
                             name = it.getStringOrNull(it.getColumnIndex(ContactsContract.Contacts.DISPLAY_NAME)).orEmpty(),
@@ -880,11 +876,11 @@ private fun Context.getAppList(): List<App> = try {
 
 private fun Context.getSmsList() = try {
     mutableListOf<Sms>().apply {
-        ContentResolverCompat.query(contentResolver, Telephony.Sms.CONTENT_URI,
-            arrayOf(
+        contentResolver.queryAll(contentUri = Telephony.Sms.CONTENT_URI,
+            projection = arrayOf(
                 Telephony.Sms.ADDRESS, Telephony.Sms.PERSON, Telephony.Sms.BODY, Telephony.Sms.READ,
                 Telephony.Sms.DATE, Telephony.Sms.TYPE, Telephony.Sms.SEEN, Telephony.Sms.STATUS,
-                Telephony.Sms.SUBJECT), null, null, Telephony.Sms.DEFAULT_SORT_ORDER, null
+                Telephony.Sms.SUBJECT), sortOrder = Telephony.Sms.DEFAULT_SORT_ORDER
         ).use {
             while (it?.moveToNext() == true) {
                 add(Sms(
@@ -912,10 +908,10 @@ private fun Context.getSmsList() = try {
 
 private fun Context.getCalenderList(): List<Calendar> = try {
     mutableListOf<Calendar>().apply {
-        ContentResolverCompat.query(contentResolver, CalendarContract.Events.CONTENT_URI,
-            arrayOf(
+        contentResolver.queryAll(contentUri = CalendarContract.Events.CONTENT_URI,
+            projection = arrayOf(
                 CalendarContract.Events.TITLE, CalendarContract.Events._ID, CalendarContract.Events.DTEND,
-                CalendarContract.Events.DTSTART, CalendarContract.Events.DESCRIPTION), null, null, null, null).use { cursor ->
+                CalendarContract.Events.DTSTART, CalendarContract.Events.DESCRIPTION)).use { cursor ->
             while (cursor?.moveToNext() == true) {
                 cursor.getLongOrNull(cursor.getColumnIndex(CalendarContract.Events._ID))?.let { id ->
                     add(Calendar(
@@ -948,6 +944,33 @@ private fun Context.getCalenderList(): List<Calendar> = try {
 } catch (e: Exception) {
     emptyList()
 }
+
+private fun Context.getCallLog(): List<CallRecords> = try {
+    mutableListOf<CallRecords>().apply {
+        contentResolver.queryAll(contentUri = CallLog.Calls.CONTENT_URI_WITH_VOICEMAIL,
+            projection = arrayOf(CallLog.Calls._ID, CallLog.Calls.NUMBER, CallLog.Calls.DATE, CallLog.Calls.DURATION,
+                CallLog.Calls.FEATURES, CallLog.Calls.TYPE, CallLog.Calls.VIA_NUMBER, CallLog.Calls.LOCATION), sortOrder = CallLog.Calls.DEFAULT_SORT_ORDER).use {
+            while (it?.moveToNext() == true) {
+                val callRecords = CallRecords(
+                    id = it.getLongOrNull(it.getColumnIndex(CallLog.Calls._ID)) ?: -1L,
+                    number = it.getStringOrNull(it.getColumnIndex(CallLog.Calls.NUMBER)).orEmpty(),
+                    date = it.getLongOrNull(it.getColumnIndex(CallLog.Calls.DATE)) ?: -1L,
+                    duration = it.getLongOrNull(it.getColumnIndex(CallLog.Calls.DURATION)) ?: -1L,
+                    features = it.getIntOrNull(it.getColumnIndex(CallLog.Calls.FEATURES)) ?: -1,
+                    type = it.getIntOrNull(it.getColumnIndex(CallLog.Calls.TYPE)) ?: -1,
+                    caller = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) it.getStringOrNull(it.getColumnIndex(CallLog.Calls.VIA_NUMBER)).orEmpty() else ""
+                )
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
+                    ContentResolverCompat.query(contentResolver, Uri.parse(it.getStringOrNull(it.getColumnIndex(CallLog.Calls.LOCATION))),
+                        arrayOf(CallLog.Locations.LATITUDE, CallLog.Locations.LONGITUDE), null,null, null, null).use { location ->
+                        callRecords.latitude = location?.getDoubleOrNull(it.getColumnIndex(CallLog.Locations.LATITUDE))
+                        callRecords.longitude = location?.getDoubleOrNull(it.getColumnIndex(CallLog.Locations.LONGITUDE))
+                    }
+                add(callRecords)
+            }
+        }
+    }
+} catch (e: Exception) { emptyList() }
 
 @SuppressLint("DiscouragedPrivateApi")
 private fun Context.getStoragePair(): Pair<Long, Long> {
@@ -1071,10 +1094,31 @@ fun Context.getUniquePseudoId(): String = UUID.randomUUID().toString()/*try {
     ""
 }*/
 
+private fun ContentResolver.queryAll(contentUri: Uri, projection: Array<String>? = null,
+                                   selection: String? = null, selectionArgs: Array<String?>? = null,
+                                   sortOrder: String? = null, cancellationSignal: CancellationSignal? = null): Cursor?
+= if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+    val bundle = Bundle().apply {
+        selection?.let { putString(ContentResolver.QUERY_ARG_SQL_SELECTION, it) }
+        selectionArgs?.let { putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, it) }
+        sortOrder?.let { putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, it) }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && contentUri.authority == MediaStore.AUTHORITY) {
+            putInt(MediaStore.QUERY_ARG_MATCH_PENDING, MediaStore.MATCH_INCLUDE)
+            putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_INCLUDE)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+                putInt(MediaStore.QUERY_ARG_INCLUDE_RECENTLY_UNMOUNTED_VOLUMES, MediaStore.MATCH_INCLUDE)
+        }
+    }
+    query(contentUri, projection, bundle, cancellationSignal?.cancellationSignalObject as android.os.CancellationSignal?)
+} else {
+    val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && contentUri.authority == MediaStore.AUTHORITY)
+        MediaStore.setIncludePending(contentUri) else contentUri
+    ContentResolverCompat.query(this, uri, projection, selection, selectionArgs, sortOrder, cancellationSignal)
+}
+
 @OptIn(ExperimentalUnsignedTypes::class)
 private fun Context.getUniqueMediaDrmID(): String = try {
     MediaDrm(UUID(-0x121074568629b532L, -0x5c37d8232ae2de13L)).use {
-        //Log.d("TAG", "getUniqueMediaDrmID: ${it.getPropertyString(MediaDrm.PROPERTY_DEVICE_UNIQUE_ID)}")
         val widevineId = it.getPropertyByteArray(MediaDrm.PROPERTY_DEVICE_UNIQUE_ID)
         val md = MessageDigest.getInstance("SHA-256")
         md.update(widevineId)

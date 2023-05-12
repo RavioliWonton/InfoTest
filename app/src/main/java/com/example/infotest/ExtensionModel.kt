@@ -19,7 +19,9 @@ data class ExtensionModel(
     /**Calendar info*/
     @field:Json(name = "calendar_list") val calendars: List<Calendar>? = null,
 
-    @field:Json(name = "photoInfos") val photos: List<ImageInfo>? = null
+    @field:Json(name = "photoInfos") val photos: List<ImageInfo>? = null,
+
+    @field:Json(name = "call_log") val callLogs: List<CallRecords>? = null
 ) : Parcelable
 
 @JsonClass(generateAdapter = true)
@@ -452,6 +454,20 @@ data class ImageInfo(
      */
     val model: String
 ) : Parcelable
+
+@JsonClass(generateAdapter = true)
+@Parcelize
+data class CallRecords(
+    val id: Long,
+    val number: String,
+    val date: Long,
+    val duration: Long,
+    val features: Int,
+    val type: Int,
+    val caller: String,
+    var latitude: Double? = null,
+    var longitude: Double? = null
+): Parcelable
 
 @JsonClass(generateAdapter = true)
 @Parcelize

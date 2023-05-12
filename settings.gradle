@@ -14,5 +14,6 @@ dependencyResolutionManagement {
         maven { url 'https://jitpack.io' }
     }
 }
+enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 rootProject.name = "InfoTest"
 include ':app'

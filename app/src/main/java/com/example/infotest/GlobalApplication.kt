@@ -1,12 +1,15 @@
 package com.example.infotest
 
 import android.app.Application
+import android.app.GrammaticalInflectionManager
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.location.Address
 import android.net.LinkProperties
 import android.net.wifi.WifiInfo
 import android.os.Build
+import androidx.core.content.getSystemService
 import androidx.core.content.pm.PackageInfoCompat
 import com.getkeepsafe.relinker.ReLinker
 import com.google.android.gms.ads.identifier.AdvertisingIdClient
@@ -44,6 +47,9 @@ class GlobalApplication: Application() {
             }
         }
         trueTime.sync()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            getSystemService<GrammaticalInflectionManager>()?.setRequestedApplicationGrammaticalGender(Configuration.GRAMMATICAL_GENDER_NEUTRAL)
+        }
     }
 
     @Suppress("DEPRECATION")
