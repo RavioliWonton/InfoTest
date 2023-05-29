@@ -55,6 +55,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleInstance"
+            android:colorMode="wideColorGamut"
             android:theme="@style/Theme.InfoTest">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

@@ -961,8 +961,8 @@ private fun Context.getCallLog(): List<CallRecords> = try {
                     caller = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) it.getStringOrNull(it.getColumnIndex(CallLog.Calls.VIA_NUMBER)).orEmpty() else ""
                 )
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
-                    ContentResolverCompat.query(contentResolver, Uri.parse(it.getStringOrNull(it.getColumnIndex(CallLog.Calls.LOCATION))),
-                        arrayOf(CallLog.Locations.LATITUDE, CallLog.Locations.LONGITUDE), null,null, null, null).use { location ->
+                    contentResolver.queryAll(contentUri = Uri.parse(it.getStringOrNull(it.getColumnIndex(CallLog.Calls.LOCATION))),
+                        projection = arrayOf(CallLog.Locations.LATITUDE, CallLog.Locations.LONGITUDE)).use { location ->
                         callRecords.latitude = location?.getDoubleOrNull(it.getColumnIndex(CallLog.Locations.LATITUDE))
                         callRecords.longitude = location?.getDoubleOrNull(it.getColumnIndex(CallLog.Locations.LONGITUDE))
                     }
@@ -1098,23 +1098,24 @@ private fun ContentResolver.queryAll(contentUri: Uri, projection: Array<String>?
                                    selection: String? = null, selectionArgs: Array<String?>? = null,
                                    sortOrder: String? = null, cancellationSignal: CancellationSignal? = null): Cursor?
 = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+    var uri = contentUri
     val bundle = Bundle().apply {
         selection?.let { putString(ContentResolver.QUERY_ARG_SQL_SELECTION, it) }
         selectionArgs?.let { putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, it) }
         sortOrder?.let { putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, it) }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && contentUri.authority == MediaStore.AUTHORITY) {
-            putInt(MediaStore.QUERY_ARG_MATCH_PENDING, MediaStore.MATCH_INCLUDE)
-            putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_INCLUDE)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
-                putInt(MediaStore.QUERY_ARG_INCLUDE_RECENTLY_UNMOUNTED_VOLUMES, MediaStore.MATCH_INCLUDE)
-        }
     }
-    query(contentUri, projection, bundle, cancellationSignal?.cancellationSignalObject as android.os.CancellationSignal?)
-} else {
-    val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && contentUri.authority == MediaStore.AUTHORITY)
-        MediaStore.setIncludePending(contentUri) else contentUri
-    ContentResolverCompat.query(this, uri, projection, selection, selectionArgs, sortOrder, cancellationSignal)
-}
+    if (uri.authority == MediaStore.AUTHORITY) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            bundle.putInt(MediaStore.QUERY_ARG_MATCH_PENDING, MediaStore.MATCH_INCLUDE)
+            bundle.putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_INCLUDE)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+                bundle.putInt(MediaStore.QUERY_ARG_INCLUDE_RECENTLY_UNMOUNTED_VOLUMES, MediaStore.MATCH_INCLUDE)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+            uri = MediaStore.setIncludePending(contentUri)
+    }
+    query(uri, projection, bundle, cancellationSignal?.cancellationSignalObject as android.os.CancellationSignal?)
+} else ContentResolverCompat.query(this, contentUri, projection, selection, selectionArgs, sortOrder, cancellationSignal)
+
 
 @OptIn(ExperimentalUnsignedTypes::class)
 private fun Context.getUniqueMediaDrmID(): String = try {

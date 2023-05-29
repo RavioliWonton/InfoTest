@@ -17,6 +17,7 @@ import android.os.Bundle
 import android.os.Looper
 import android.provider.Settings
 import android.telephony.*
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -26,6 +27,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
+import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -76,9 +79,8 @@ class MainActivity : ComponentActivity() {
     private var isStartingFetch by mutableStateOf(false)
     private val permissionArray = mutableListOf(
         Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE,
-        Manifest.permission.ACCESS_COARSE_LOCATION,
-        Manifest.permission.ACCESS_FINE_LOCATION,
-        Manifest.permission.READ_CONTACTS, Manifest.permission.READ_SMS,
+        Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION,
+        Manifest.permission.READ_CONTACTS, Manifest.permission.READ_SMS, Manifest.permission.READ_CALL_LOG,
         Manifest.permission.READ_PHONE_STATE, Manifest.permission.READ_CALENDAR
     )
     private val qPermissionArray = permissionArray.plusElement(Manifest.permission.ACCESS_MEDIA_LOCATION)
@@ -156,10 +158,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    @OptIn(ExperimentalPermissionsApi::class)
+    @OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3WindowSizeClassApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+        )
         /*if (isNetworkAvailable())
             lifecycleScope.launch(noExceptionContext) {
                 TrueTime.build().withLoggingEnabled(GlobalApplication.isDebug)
@@ -174,6 +180,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val systemUiController = rememberSystemUiController()
             systemUiController.setSystemBarsColor(Color.Transparent, darkIcons = isSystemInDarkTheme().not())
+            val windowSizeClass = calculateWindowSizeClass(this)
 
             InfoTestTheme {
                 // A surface container using the 'background' color from the theme
@@ -347,7 +354,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun onFinish() {
-        GlobalApplication.lastLoginTime = currentNetworkTimeInstant.toEpochMilli()
+        GlobalApplication.lastLoginTime = currentNetworkTimeInstant.epochSecond
     }
 }
 

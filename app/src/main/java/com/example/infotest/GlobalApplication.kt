@@ -46,13 +46,11 @@ class GlobalApplication: Application() {
                 appSetId = AppSet.getClient(applicationContext).appSetIdInfo.await().id
             }
         }
-        trueTime.sync()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        if (isNetworkAvailable()) trueTime.sync()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
             getSystemService<GrammaticalInflectionManager>()?.setRequestedApplicationGrammaticalGender(Configuration.GRAMMATICAL_GENDER_NEUTRAL)
-        }
     }
 
-    @Suppress("DEPRECATION")
     companion object {
         private val mmkv by lazy { MMKV.defaultMMKV(MMKV.MULTI_PROCESS_MODE, null) }
         val appVersion by lazy { PackageInfoCompat.getLongVersionCode(
