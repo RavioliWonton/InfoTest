@@ -24,6 +24,9 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemGesturesPadding
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -37,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -67,6 +71,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
@@ -89,18 +94,17 @@ class MainActivity : ComponentActivity() {
         Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)).minusElement(
         Manifest.permission.READ_EXTERNAL_STORAGE)
     private val locationServices by lazy { LocationServices.getFusedLocationProviderClient(this) }
-    private val listener by lazy {
-        object : LocationListenerCompat {
-            override fun onLocationChanged(location: Location) {
-                //Log.d("TAG", "LocationData :$location")
-                GlobalApplication.gps = GPS(location.latitude.toString(),
-                    location.longitude.toString(),
-                    LocationCompat.getElapsedRealtimeNanos(location))
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-                    Geocoder(this@MainActivity).getFromLocation(location.latitude, location.longitude, 1) {
+    private val listener by lazy { object : LocationListenerCompat {
+        override fun onLocationChanged(location: Location) {
+            //Log.d("TAG", "LocationData :$location")
+            GlobalApplication.gps = GPS(location.latitude.toString(), location.longitude.toString(),
+                LocationCompat.getElapsedRealtimeNanos(location))
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+                Geocoder(this@MainActivity)
+                    .getFromLocation(location.latitude, location.longitude, 1) {
                         GlobalApplication.address = it.firstOrNull()
                     }
-            }
+        }
 
             override fun onProviderDisabled(provider: String) = Unit
             override fun onProviderEnabled(provider: String) = Unit
@@ -108,21 +112,19 @@ class MainActivity : ComponentActivity() {
             override fun onStatusChanged(provider: String, status: Int, extras: Bundle?) = Unit
         }
     }
-    private val callback by lazy {
-        object : LocationCallback() {
-            override fun onLocationResult(result: LocationResult) {
-                super.onLocationResult(result)
-                result.locations.maxWithOrNull(compareBy { LocationCompat.getElapsedRealtimeNanos(it) })
-                    ?.let { location ->
-                        //Log.d("TAG", "LocationData :${location.toString()}")
-                        GlobalApplication.gps = GPS(location.latitude.toString(),
-                            location.longitude.toString(),
-                            LocationCompat.getElapsedRealtimeNanos(location))
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-                            Geocoder(this@MainActivity).getFromLocation(location.latitude, location.longitude, 1) {
-                                GlobalApplication.address = it.firstOrNull()
-                            }
-                    }
+    private val callback by lazy { object : LocationCallback() {
+        override fun onLocationResult(result: LocationResult) {
+            super.onLocationResult(result)
+            result.locations.maxWithOrNull(compareBy { LocationCompat.getElapsedRealtimeNanos(it) })
+                ?.let { location ->
+                    //Log.d("TAG", "LocationData :${location.toString()}")
+                    GlobalApplication.gps = GPS(location.latitude.toString(), location.longitude.toString(),
+                        LocationCompat.getElapsedRealtimeNanos(location))
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+                        Geocoder(this@MainActivity).getFromLocation(location.latitude, location.longitude, 1) {
+                            GlobalApplication.address = it.firstOrNull()
+                        }
+                }
             }
         }
     }
@@ -179,7 +181,7 @@ class MainActivity : ComponentActivity() {
             }*/
         setContent {
             val systemUiController = rememberSystemUiController()
-            systemUiController.setSystemBarsColor(Color.Transparent, darkIcons = isSystemInDarkTheme().not())
+            systemUiController.setSystemBarsColor(if (isSystemInDarkTheme()) Color.White else Color.Black)
             val windowSizeClass = calculateWindowSizeClass(this)
 
             InfoTestTheme {
@@ -192,7 +194,7 @@ class MainActivity : ComponentActivity() {
                     val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) sPermissionArray
                         else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) qPermissionArray
                         else permissionArray
-                    val mediaLocationPermission = rememberPermissionState(permission = Manifest.permission.ACCESS_MEDIA_LOCATION) {}
+                    val mediaLocationPermission = rememberPermissionState(permission = Manifest.permission.ACCESS_MEDIA_LOCATION, onPermissionResult = { })
                     val permission = rememberMultiplePermissionsState(permissions = permissions) { result ->
                         if (result.isNotEmpty()) {
                             if (result.any { !it.value }) ActivityCompat.finishAffinity(this)
@@ -229,12 +231,11 @@ class MainActivity : ComponentActivity() {
                 })
             } else getSystemService<WifiManager>()?.startScan()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                getSystemService<TelephonyManager>()?.requestCellInfoUpdate(Dispatchers.IO.asExecutor(),
-                    object : TelephonyManager.CellInfoCallback() {
-                        override fun onCellInfo(cellInfo: MutableList<CellInfo>) {
-                            GlobalApplication.dbm = cellInfo.dbmCompat
-                        }
-                    })
+                getSystemService<TelephonyManager>()?.requestCellInfoUpdate(Dispatchers.IO.asExecutor(), object : TelephonyManager.CellInfoCallback() {
+                    override fun onCellInfo(cellInfo: MutableList<CellInfo>) {
+                        GlobalApplication.dbm = cellInfo.dbmCompat
+                    }
+                })
             }
             getSystemService<ConnectivityManager>()?.let {
                 val request = NetworkRequest.Builder()
@@ -242,7 +243,8 @@ class MainActivity : ComponentActivity() {
                     .apply { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) setIncludeOtherUidNetworks(true) }
                     .build()
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-                    it.registerBestMatchingNetworkCallback(request, wifiCallback, HandlerCompat.createAsync(Looper.myLooper() ?: Looper.getMainLooper()))
+                    it.registerBestMatchingNetworkCallback(request, wifiCallback,
+                        HandlerCompat.createAsync(Looper.myLooper() ?: Looper.getMainLooper()))
                 else it.registerNetworkCallback(request, wifiCallback)
             }
             GoogleApiAvailability.getInstance().checkApiAvailability(locationServices)
@@ -256,26 +258,27 @@ class MainActivity : ComponentActivity() {
                             .addLocationRequest(request).build()
                     ).addOnCompleteListener { result ->
                         try {
-                            val response = result.getResult(ApiException::class.java)
-                            if (response.locationSettingsStates?.isLocationPresent == true) {
-                                locationServices.lastLocation.addOnSuccessListener { lastKnown ->
-                                    //Log.d("TAG", "onStart: $lastKnown")
-                                    if (lastKnown != null && (GlobalApplication.gps?.time ?: -1L)
-                                        < LocationCompat.getElapsedRealtimeNanos(lastKnown)) {
-                                        GlobalApplication.gps = GPS(
-                                            lastKnown.latitude.toString(),
-                                            lastKnown.longitude.toString(),
-                                            LocationCompat.getElapsedRealtimeNanos(lastKnown)
-                                        )
-                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-                                            Geocoder(this@MainActivity).getFromLocation(lastKnown.latitude,
-                                                lastKnown.longitude, 1) { list ->
-                                                GlobalApplication.address = list.firstOrNull()
-                                            }
+                            val response = result.getResult(ApiException::class.java).locationSettingsStates
+                            if (response?.isLocationUsable == false) {
+                                startActionCompat(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
+                            } else {
+                                if (response?.isLocationPresent == true || response?.isBlePresent == true ||
+                                    locationServices.locationAvailability.getResult(ApiException::class.java).isLocationAvailable) {
+                                    locationServices.lastLocation.addOnSuccessListener { lastKnown ->
+                                        //Log.d("TAG", "onStart: $lastKnown")
+                                        if (lastKnown != null && (GlobalApplication.gps?.time ?: -1L) <
+                                            LocationCompat.getElapsedRealtimeNanos(lastKnown)) {
+                                            GlobalApplication.gps = GPS(lastKnown.latitude.toString(), lastKnown.longitude.toString(),
+                                                LocationCompat.getElapsedRealtimeNanos(lastKnown))
+                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && Geocoder.isPresent())
+                                                Geocoder(this@MainActivity).getFromLocation(lastKnown.latitude, lastKnown.longitude, 1) { list ->
+                                                    GlobalApplication.address = list.firstOrNull()
+                                                }
+                                        }
                                     }
                                 }
+                                locationServices.requestLocationUpdates(request, Dispatchers.IO.asExecutor(), callback)
                             }
-                            locationServices.requestLocationUpdates(request, Dispatchers.IO.asExecutor(), callback)
                         } catch (e: ApiException) {
                             if (e.statusCode == LocationSettingsStatusCodes.RESOLUTION_REQUIRED) {
                                 try {
@@ -293,12 +296,10 @@ class MainActivity : ComponentActivity() {
                     if (it.getProviders(true).contains(LocationManager.GPS_PROVIDER)) {
                         LocationManagerCompat.getCurrentLocation(it, LocationManager.GPS_PROVIDER, null, Dispatchers.IO.asExecutor()) { gpsLastKnown ->
                             if (gpsLastKnown != null && (GlobalApplication.gps?.time ?: -1L) < LocationCompat.getElapsedRealtimeNanos(gpsLastKnown)) {
-                                GlobalApplication.gps = GPS(
-                                    gpsLastKnown.latitude.toString(),
-                                    gpsLastKnown.longitude.toString(),
+                                GlobalApplication.gps = GPS(gpsLastKnown.latitude.toString(), gpsLastKnown.longitude.toString(),
                                     LocationCompat.getElapsedRealtimeNanos(gpsLastKnown)
                                 )
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && Geocoder.isPresent())
                                     Geocoder(this@MainActivity).getFromLocation(gpsLastKnown.latitude, gpsLastKnown.longitude, 1) { list ->
                                         GlobalApplication.address = list.firstOrNull()
                                     }
@@ -308,12 +309,10 @@ class MainActivity : ComponentActivity() {
                     } else if (it.getProviders(true).contains(LocationManager.NETWORK_PROVIDER)) {
                         LocationManagerCompat.getCurrentLocation(it, LocationManager.NETWORK_PROVIDER, null, Dispatchers.IO.asExecutor()) { networkLastKnown ->
                             if (networkLastKnown != null && (GlobalApplication.gps?.time ?: -1L) < LocationCompat.getElapsedRealtimeNanos(networkLastKnown)) {
-                                GlobalApplication.gps = GPS(
-                                    networkLastKnown.latitude.toString(),
-                                    networkLastKnown.longitude.toString(),
+                                GlobalApplication.gps = GPS(networkLastKnown.latitude.toString(), networkLastKnown.longitude.toString(),
                                     LocationCompat.getElapsedRealtimeNanos(networkLastKnown)
                                 )
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && Geocoder.isPresent())
                                     Geocoder(this@MainActivity).getFromLocation(networkLastKnown.latitude, networkLastKnown.longitude, 1) { list ->
                                         GlobalApplication.address = list.firstOrNull()
                                     }
@@ -361,9 +360,11 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun Greeting(name: String) {
     Column(verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally) {
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.systemGesturesPadding().fillMaxSize()) {
         Text(text = name,
-            style = MaterialTheme.typography.bodyLarge,
-            textAlign = TextAlign.Center)
+            style = MaterialTheme.typography.titleLarge,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.wrapContentSize())
     }
 }
