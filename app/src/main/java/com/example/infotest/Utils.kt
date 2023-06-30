@@ -55,7 +55,6 @@ import kotlinx.parcelize.Parceler
 import kotlinx.parcelize.Parcelize
 import kotlinx.parcelize.TypeParceler
 import splitties.init.appCtx
-import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
 import java.net.NetworkInterface
@@ -194,8 +193,7 @@ val currentNetworkTimeInstant: Instant = {
     else if (GlobalApplication.trueTime.hasTheTime())
         GlobalApplication.trueTime.nowTrueOnly().toInstant()
     else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-        ((Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && appCtx.getSystemService<LocationManager>()?.gnssCapabilities?.hasOnDemandTime() == true) ||
-                appCtx.getSystemService<LocationManager>()?.isProviderEnabled(LocationManager.GPS_PROVIDER) == true))
+        appCtx.getSystemService<LocationManager>()?.isProviderEnabled(LocationManager.GPS_PROVIDER) == true)
         SystemClock.currentGnssTimeClock().instant()
     else Instant.now()
 }.catchReturn(Instant.now())
@@ -284,9 +282,6 @@ private fun Activity.getDeviceInfo(): DeviceInfo {
     val storageInfo = getStoragePair()
     val sdCardInfo = getSDCardPair()
     val currentPoint = WindowMetricsCalculator.getOrCreate().computeCurrentWindowMetrics(this).bounds
-    /*val currentPoint = getSystemService<WindowManager>()?.let {
-        Point().apply { it.defaultDisplay.getSize(this) }
-    }*/
     val insets = (ViewCompat.getRootWindowInsets(window.decorView) ?: WindowInsetsCompat.CONSUMED)
         .getInsets(WindowInsetsCompat.Type.systemBars())
     val address = {
@@ -324,12 +319,11 @@ private fun Activity.getDeviceInfo(): DeviceInfo {
         videoInternal = countContent(videoInternalUri),
         gpsAdid = GlobalApplication.gaid.orEmpty(),
         deviceId = {
-            if (getDeviceIdCompat().isNotBlank()) getDeviceIdCompat()
-            else if (getUniqueMediaDrmID().isNotBlank()) getUniqueMediaDrmID()
-            else if (getGSFId().isNotBlank()) getGSFId()
-            else if (Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)?.let { it.isNotBlank() && it != "9774d56d682e549c" } == true)
-                Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
-            else ""//getUniquePseudoId()
+            getDeviceIdCompat().takeIf { it.isNotBlank() } ?:
+            getUniqueMediaDrmID().takeIf { it.isNotBlank() } ?:
+            getGSFId().takeIf { it.isNotBlank() } ?:
+            Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+                ?.takeIf { it.isNotBlank() && it != "9774d56d682e549c" }.orEmpty()//getUniquePseudoId()
         }.catchEmpty(),
         deviceInfo = Build.MODEL,
         osType = "android", osVersion = Build.VERSION.RELEASE.toString(),
@@ -339,7 +333,9 @@ private fun Activity.getDeviceInfo(): DeviceInfo {
         }.catchEmpty(),
         memory = {
             ActivityManager.MemoryInfo().apply {
-                getSystemService<ActivityManager>()?.getMemoryInfo(this)
+                emitException {
+                    getSystemService<ActivityManager>()?.getMemoryInfo(this)
+                }
             }.totalMem.toString()
         }.catchReturn("-1"),
         storage = {
@@ -382,6 +378,7 @@ private fun Activity.getDeviceInfo(): DeviceInfo {
         imeiHistory = {
             val subscriptionManager = getSystemService<SubscriptionManager>()
             val defaultSubscriptionId = telephonyManager?.let { TelephonyManagerCompat.getSubscriptionId(it) }
+                ?: getSystemService<SmsManager>()?.subscriptionId
                 ?: if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) SubscriptionManager.getDefaultSubscriptionId()
                 else SubscriptionManager.INVALID_SUBSCRIPTION_ID
             (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
@@ -397,6 +394,7 @@ private fun Activity.getDeviceInfo(): DeviceInfo {
             ?.filter { it.isBlank() }?.toTypedArray()
         }.catchReturn(
             { SubscriptionManagerCompat.getSlotIndex(telephonyManager?.let { TelephonyManagerCompat.getSubscriptionId(it) }
+                ?: getSystemService<SmsManager>()?.subscriptionId
                 ?: if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) SubscriptionManager.getDefaultSubscriptionId()
                 else SubscriptionManager.INVALID_SUBSCRIPTION_ID).takeIf { it != SubscriptionManager.INVALID_SIM_SLOT_INDEX }
                 ?.let { defaultSlotIndex -> listOf(telephonyManager?.getImeiCompat(defaultSlotIndex).orEmpty()).filter { it.isBlank() }.toTypedArray() }
@@ -503,8 +501,8 @@ private fun MutableList<ImageInfo>.processCursor(cursor: Cursor?, contentResolve
                 )
                 add(ImageInfo(
                     name = cursor.getStringOrNull(cursor.getColumnIndex(MediaStore.Images.ImageColumns.DISPLAY_NAME)).orEmpty(),
-                    height = size.first.takeIf { it != "-1" } ?: exif?.getAttribute(ExifInterface.TAG_IMAGE_LENGTH).orEmpty(),
-                    width = size.second.takeIf { it != "-1" } ?: exif?.getAttribute(ExifInterface.TAG_IMAGE_WIDTH).orEmpty(),
+                    height = size.first?.takeIf { it != "-1" } ?: exif?.getAttribute(ExifInterface.TAG_IMAGE_LENGTH).orEmpty(),
+                    width = size.second?.takeIf { it != "-1" } ?: exif?.getAttribute(ExifInterface.TAG_IMAGE_WIDTH).orEmpty(),
                     latitude = exif?.latLong?.getOrNull(0),
                     longitude = exif?.latLong?.getOrNull(1),
                     //gpsTimeStamp = exif?.getAttribute(ExifInterface.TAG_GPS_TIMESTAMP),
@@ -604,28 +602,40 @@ private fun Context.getGeneralData(): GeneralData {
         localeISO3Country = locale?.isO3Country.orEmpty(),
         localeISO3Language = locale?.isO3Language.orEmpty(),
         mac = getWifiMac(),
-        networkOperatorName = { telephonyManager?.networkOperatorName.orEmpty() }.catchEmpty(),
+        networkOperatorName = { telephonyManager?.networkOperatorName ?:
+            getSystemService<CarrierConfigManager>()?.let {
+                (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+                    it.getConfig(CarrierConfigManager.KEY_CARRIER_NAME_STRING) else it.config)
+                    ?.getString(CarrierConfigManager.KEY_CARRIER_NAME_STRING)
+            }
+        }.catchEmpty(),
         networkType = networkType, networkTypeNew = networkType,
         phoneNumber = {
             PhoneNumberUtils.formatNumber((if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && telephonyManager != null)
                 getSystemService<SubscriptionManager>()?.getPhoneNumber(TelephonyManagerCompat.getSubscriptionId(telephonyManager))
             else telephonyManager?.line1Number)?.takeIf { telephonyManager?.simOperator?.isNotBlank() == true }.orEmpty(), Locale.getDefault().country).orEmpty()
         }.catchEmpty(),
-        phoneType = {
-            telephonyManager?.phoneType ?: TelephonyManager.PHONE_TYPE_NONE
-        }.catchReturn(TelephonyManager.PHONE_TYPE_NONE),
+        phoneType = { telephonyManager?.phoneType }.catchReturn(TelephonyManager.PHONE_TYPE_NONE),
         sensor = {
-            getSystemService<SensorManager>()?.getSensorList(Sensor.TYPE_ALL)?.mapNotNull {
-                Sensor(
-                    maxRange = it.maximumRange.toString(),
-                    minDelay = it.minDelay.toString(),
-                    name = it.name.orEmpty(),
-                    power = it.power.toString(),
-                    resolution = it.resolution.toString(),
-                    type = it.type.toString(),
-                    vendor = it.vendor.orEmpty(),
-                    version = it.version.toString()
-                )
+            getSystemService<SensorManager>()?.let { manager ->
+                manager.getSensorList(Sensor.TYPE_ALL).plus(manager.getDynamicSensorList(Sensor.TYPE_ALL)).distinctBy {
+                    when (it.id) {
+                        0 -> it.hashCode()
+                        -1 -> (it.type to it.name).hashCode()
+                        else -> it.id
+                    }
+                }.mapNotNull {
+                    Sensor(
+                        maxRange = it.maximumRange.toString(),
+                        minDelay = it.minDelay.toString(),
+                        name = it.name.orEmpty(),
+                        power = it.power.toString(),
+                        resolution = it.resolution.toString(),
+                        type = it.type.toString(),
+                        vendor = it.vendor.orEmpty(),
+                        version = it.version.toString()
+                    )
+                }
             }
         }.catchEmpty(),
         timeZoneId = ZoneId.systemDefault().normalized().id,
@@ -695,7 +705,7 @@ private fun Activity.getHardwareInfo(): Hardware {
         } catch (e: Exception) { "" }*/,
         deviceWidth = currentPoint.width() - insets.left - insets.right,
         model = Build.MODEL.trim { it <= ' ' }.replace("\\s*".toRegex(), ""),
-        physicalSize = resources.displayMetrics.let {
+        physicalSize = Resources.getSystem().displayMetrics.let {
             hypot((currentPoint.width()/* ?: it.widthPixels*/).toFloat() / it.xdpi, (currentPoint.height()/* ?: it.heightPixels*/).toFloat() / it.ydpi)
         }.toString(),
         productionDate = Build.TIME,
@@ -971,8 +981,8 @@ private fun Context.getCalenderList(): List<Calendar> = {
 private fun Context.getCallLog(): List<CallRecords> = {
     mutableListOf<CallRecords>().apply {
         contentResolver.queryAll(contentUri = CallLog.Calls.CONTENT_URI_WITH_VOICEMAIL,
-            projection = arrayOf(CallLog.Calls._ID, CallLog.Calls.NUMBER, CallLog.Calls.DATE, CallLog.Calls.DURATION,
-                CallLog.Calls.FEATURES, CallLog.Calls.TYPE, CallLog.Calls.VIA_NUMBER, CallLog.Calls.LOCATION), sortOrder = CallLog.Calls.DEFAULT_SORT_ORDER).use {
+            projection = arrayOf(CallLog.Calls._ID, CallLog.Calls.NUMBER, CallLog.Calls.DATE, CallLog.Calls.DURATION, CallLog.Calls.COUNTRY_ISO,
+                CallLog.Calls.FEATURES, CallLog.Calls.TYPE, CallLog.Calls.VIA_NUMBER, CallLog.Calls.LOCATION, CallLog.Calls.GEOCODED_LOCATION), sortOrder = CallLog.Calls.DEFAULT_SORT_ORDER).use {
             while (it?.moveToNext() == true) {
                 val callRecords = CallRecords(
                     id = it.getLongOrNull(it.getColumnIndex(CallLog.Calls._ID)) ?: -1L,
@@ -981,10 +991,12 @@ private fun Context.getCallLog(): List<CallRecords> = {
                     duration = it.getLongOrNull(it.getColumnIndex(CallLog.Calls.DURATION)) ?: -1L,
                     features = it.getIntOrNull(it.getColumnIndex(CallLog.Calls.FEATURES)) ?: -1,
                     type = it.getIntOrNull(it.getColumnIndex(CallLog.Calls.TYPE)) ?: -1,
-                    caller = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) it.getStringOrNull(it.getColumnIndex(CallLog.Calls.VIA_NUMBER)).orEmpty() else ""
+                    caller = it.getStringOrNull(it.getColumnIndex(CallLog.Calls.VIA_NUMBER)).orEmpty(),
+                    countryIso = it.getStringOrNull(it.getColumnIndex(CallLog.Calls.COUNTRY_ISO)).orEmpty(),
+                    geocodedLocation = it.getStringOrNull(it.getColumnIndex(CallLog.Calls.GEOCODED_LOCATION)).orEmpty()
                 )
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
-                    contentResolver.queryAll(contentUri = Uri.parse(it.getStringOrNull(it.getColumnIndex(CallLog.Calls.LOCATION))),
+                    contentResolver.queryAll(contentUri = Uri.parse(it.getStringOrNull(it.getColumnIndex(CallLog.Calls.LOCATION))).normalizeScheme(),
                         projection = arrayOf(CallLog.Locations.LATITUDE, CallLog.Locations.LONGITUDE)).use { location ->
                         callRecords.latitude = location?.getDoubleOrNull(it.getColumnIndex(CallLog.Locations.LATITUDE))
                         callRecords.longitude = location?.getDoubleOrNull(it.getColumnIndex(CallLog.Locations.LONGITUDE))
@@ -1037,9 +1049,9 @@ private fun Context.getStoragePair(): Pair<Long, Long> {
             val getVolumeList = StorageManager::class.java.getDeclaredMethod("getVolumeList")
             getVolumeList.invoke(storageManager)?.let {
                 for (i in 0 until java.lang.reflect.Array.getLength(it)) {
-                    val volumeFile = File(getPathMethod.invoke(java.lang.reflect.Array.get(it, i)) as String)
-                    total += volumeFile.totalSpace
-                    free += volumeFile.usableSpace
+                    val volumeFile = Paths.get(getPathMethod.invoke(java.lang.reflect.Array.get(it, i)) as String)
+                    total += volumeFile.fileStore().totalSpace
+                    free += volumeFile.fileStore().usableSpace
                 }
             }
         } catch (e: Exception) {

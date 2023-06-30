@@ -124,7 +124,120 @@ data class DeviceInfo(
     @field:Json(name = "resolution") val resolution: String?,
     /**品牌*/
     @field:Json(name = "brand") val brand: String?
-) : Parcelable
+) : Parcelable {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as DeviceInfo
+
+        if (albs != other.albs) return false
+        if (audioExternal != other.audioExternal) return false
+        if (audioInternal != other.audioInternal) return false
+        if (batteryStatus != other.batteryStatus) return false
+        if (generalData != other.generalData) return false
+        if (hardware != other.hardware) return false
+        if (network != other.network) return false
+        if (otherData != other.otherData) return false
+        if (newStorage != other.newStorage) return false
+        if (buildId != other.buildId) return false
+        if (buildName != other.buildName) return false
+        if (contactGroup != other.contactGroup) return false
+        if (createTime != other.createTime) return false
+        if (downloadFiles != other.downloadFiles) return false
+        if (imagesExternal != other.imagesExternal) return false
+        if (imagesInternal != other.imagesInternal) return false
+        if (packageName != other.packageName) return false
+        if (videoExternal != other.videoExternal) return false
+        if (videoInternal != other.videoInternal) return false
+        if (gpsAdid != other.gpsAdid) return false
+        if (deviceId != other.deviceId) return false
+        if (deviceInfo != other.deviceInfo) return false
+        if (osType != other.osType) return false
+        if (osVersion != other.osVersion) return false
+        if (ip != other.ip) return false
+        if (memory != other.memory) return false
+        if (storage != other.storage) return false
+        if (unUseStorage != other.unUseStorage) return false
+        if (gpsLongitude != other.gpsLongitude) return false
+        if (gpsLatitude != other.gpsLatitude) return false
+        if (gpsAddress != other.gpsAddress) return false
+        if (addressInfo != other.addressInfo) return false
+        if (isWifi != other.isWifi) return false
+        if (wifiName != other.wifiName) return false
+        if (battery != other.battery) return false
+        if (isRoot != other.isRoot) return false
+        if (isSimulator != other.isSimulator) return false
+        if (lastLoginTime != other.lastLoginTime) return false
+        if (picCount != other.picCount) return false
+        if (imsi != other.imsi) return false
+        if (mac != other.mac) return false
+        if (sdCard != other.sdCard) return false
+        if (unUseSdCard != other.unUseSdCard) return false
+        if (idfv != other.idfv) return false
+        if (idfa != other.idfa) return false
+        if (imeiHistory != null) {
+            if (other.imeiHistory == null) return false
+            if (!imeiHistory.contentEquals(other.imeiHistory)) return false
+        } else if (other.imeiHistory != null) return false
+        if (ime != other.ime) return false
+        if (resolution != other.resolution) return false
+        return brand == other.brand
+    }
+
+    override fun hashCode(): Int {
+        var result = albs?.hashCode() ?: 0
+        result = 31 * result + (audioExternal ?: 0)
+        result = 31 * result + (audioInternal ?: 0)
+        result = 31 * result + (batteryStatus?.hashCode() ?: 0)
+        result = 31 * result + (generalData?.hashCode() ?: 0)
+        result = 31 * result + (hardware?.hashCode() ?: 0)
+        result = 31 * result + (network?.hashCode() ?: 0)
+        result = 31 * result + (otherData?.hashCode() ?: 0)
+        result = 31 * result + (newStorage?.hashCode() ?: 0)
+        result = 31 * result + (buildId?.hashCode() ?: 0)
+        result = 31 * result + (buildName?.hashCode() ?: 0)
+        result = 31 * result + (contactGroup ?: 0)
+        result = 31 * result + (createTime?.hashCode() ?: 0)
+        result = 31 * result + (downloadFiles ?: 0)
+        result = 31 * result + (imagesExternal ?: 0)
+        result = 31 * result + (imagesInternal ?: 0)
+        result = 31 * result + (packageName?.hashCode() ?: 0)
+        result = 31 * result + (videoExternal ?: 0)
+        result = 31 * result + (videoInternal ?: 0)
+        result = 31 * result + (gpsAdid?.hashCode() ?: 0)
+        result = 31 * result + (deviceId?.hashCode() ?: 0)
+        result = 31 * result + (deviceInfo?.hashCode() ?: 0)
+        result = 31 * result + (osType?.hashCode() ?: 0)
+        result = 31 * result + (osVersion?.hashCode() ?: 0)
+        result = 31 * result + (ip?.hashCode() ?: 0)
+        result = 31 * result + (memory?.hashCode() ?: 0)
+        result = 31 * result + (storage?.hashCode() ?: 0)
+        result = 31 * result + (unUseStorage?.hashCode() ?: 0)
+        result = 31 * result + (gpsLongitude?.hashCode() ?: 0)
+        result = 31 * result + (gpsLatitude?.hashCode() ?: 0)
+        result = 31 * result + (gpsAddress?.hashCode() ?: 0)
+        result = 31 * result + (addressInfo?.hashCode() ?: 0)
+        result = 31 * result + (isWifi ?: 0)
+        result = 31 * result + (wifiName?.hashCode() ?: 0)
+        result = 31 * result + (battery ?: 0)
+        result = 31 * result + (isRoot ?: 0)
+        result = 31 * result + (isSimulator ?: 0)
+        result = 31 * result + (lastLoginTime?.hashCode() ?: 0)
+        result = 31 * result + (picCount ?: 0)
+        result = 31 * result + (imsi?.hashCode() ?: 0)
+        result = 31 * result + (mac?.hashCode() ?: 0)
+        result = 31 * result + (sdCard?.hashCode() ?: 0)
+        result = 31 * result + (unUseSdCard?.hashCode() ?: 0)
+        result = 31 * result + (idfv?.hashCode() ?: 0)
+        result = 31 * result + (idfa?.hashCode() ?: 0)
+        result = 31 * result + (imeiHistory?.contentHashCode() ?: 0)
+        result = 31 * result + (ime?.hashCode() ?: 0)
+        result = 31 * result + (resolution?.hashCode() ?: 0)
+        result = 31 * result + (brand?.hashCode() ?: 0)
+        return result
+    }
+}
 
 @JsonClass(generateAdapter = true)
 @Parcelize
@@ -465,6 +578,8 @@ data class CallRecords(
     val features: Int,
     val type: Int,
     val caller: String,
+    val countryIso: String,
+    val geocodedLocation: String,
     var latitude: Double? = null,
     var longitude: Double? = null
 ): Parcelable

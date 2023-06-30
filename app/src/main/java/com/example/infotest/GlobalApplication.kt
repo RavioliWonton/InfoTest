@@ -2,6 +2,7 @@ package com.example.infotest
 
 import android.app.Application
 import android.app.GrammaticalInflectionManager
+import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
@@ -15,6 +16,7 @@ import com.getkeepsafe.relinker.ReLinker
 import com.google.android.gms.ads.identifier.AdvertisingIdClient
 import com.google.android.gms.appset.AppSet
 import com.google.android.gms.common.ConnectionResult
+import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.common.GoogleApiAvailabilityLight
 import com.google.android.gms.security.ProviderInstaller
 import com.instacart.truetime.time.TrueTimeImpl
@@ -24,7 +26,9 @@ import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import org.conscrypt.Conscrypt
 import splitties.init.appCtx
+import java.security.Security
 
 class GlobalApplication: Application() {
 
@@ -37,7 +41,14 @@ class GlobalApplication: Application() {
         // Light is enough for checking for gms availability according to so/57902978
         if (GoogleApiAvailabilityLight.getInstance()
                 .isGooglePlayServicesAvailable(this) == ConnectionResult.SUCCESS) {
-            ProviderInstaller.installIfNeeded(this)
+            ProviderInstaller.installIfNeededAsync(this, object : ProviderInstaller.ProviderInstallListener {
+                override fun onProviderInstallFailed(errorCode: Int, recoveryIntent: Intent?) {
+                    GoogleApiAvailability.getInstance().showErrorNotification(this@GlobalApplication, errorCode)
+                    Security.insertProviderAt(Conscrypt.newProviderBuilder().provideTrustManager(true).build(), 0)
+                }
+
+                override fun onProviderInstalled() = Unit
+            })
             if (gaid.isNullOrBlank()) GlobalScope.launch(noExceptionContext) {
                 gaid = AdvertisingIdClient.getAdvertisingIdInfo(applicationContext).id
             }
@@ -45,7 +56,8 @@ class GlobalApplication: Application() {
             if (appSetId.isNullOrBlank()) GlobalScope.launch(noExceptionContext) {
                 appSetId = AppSet.getClient(applicationContext).appSetIdInfo.await().id
             }
-        }
+        } else if (Conscrypt.isAvailable())
+            Security.insertProviderAt(Conscrypt.newProviderBuilder().provideTrustManager(true).build(), 0)
         if (isNetworkAvailable()) trueTime.sync()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
             getSystemService<GrammaticalInflectionManager>()?.setRequestedApplicationGrammaticalGender(Configuration.GRAMMATICAL_GENDER_NEUTRAL)
