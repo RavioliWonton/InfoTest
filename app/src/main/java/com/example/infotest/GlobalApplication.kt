@@ -44,7 +44,7 @@ class GlobalApplication: Application() {
             ProviderInstaller.installIfNeededAsync(this, object : ProviderInstaller.ProviderInstallListener {
                 override fun onProviderInstallFailed(errorCode: Int, recoveryIntent: Intent?) {
                     GoogleApiAvailability.getInstance().showErrorNotification(this@GlobalApplication, errorCode)
-                    Security.insertProviderAt(Conscrypt.newProviderBuilder().provideTrustManager(true).build(), 0)
+                    if (Conscrypt.isAvailable()) Security.insertProviderAt(Conscrypt.newProviderBuilder().provideTrustManager(true).build(), 0)
                 }
 
                 override fun onProviderInstalled() = Unit

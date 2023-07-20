@@ -3,9 +3,9 @@ plugins {
     id 'org.gradle.android.cache-fix'
     id 'org.jetbrains.kotlin.android'
     id 'kotlin-parcelize'
-    //id 'com.google.devtools.ksp'
+    id 'com.google.devtools.ksp'
     id 'project-report'
-    id 'dev.zacsweers.moshix' version '0.22.1'
+    id 'dev.zacsweers.moshix' version '0.24.0-RC'
     id 'com.github.ben-manes.versions' version '0.47.0'
     id 'com.getkeepsafe.dexcount' version '4.0.0'
 }
@@ -18,8 +18,8 @@ android {
         applicationId "com.example.infotest"
         minSdk 21
         targetSdk 34
-        versionCode 4
-        versionName "1.0.3"
+        versionCode 5
+        versionName "1.0.4"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -68,7 +68,7 @@ android {
     }
 
     composeOptions {
-        kotlinCompilerExtensionVersion = '1.4.8'
+        kotlinCompilerExtensionVersion = '1.5.0'
     }
 
     packaging {
@@ -89,6 +89,7 @@ android {
         checkDependencies true
         explainIssues true
         showAll true
+        checkReleaseBuilds false
     }
 }
 
@@ -118,7 +119,7 @@ dependencies {
     implementation 'androidx.loader:loader:1.1.0'
     implementation 'androidx.annotation:annotation:1.7.0-alpha02'
     implementation 'androidx.annotation:annotation-experimental:1.4.0-dev01'
-    implementation 'com.squareup.okio:okio:3.3.0'
+    implementation 'com.squareup.okio:okio:3.4.0'
     implementation 'com.squareup.moshi:moshi:1.15.0'
     implementation 'com.tencent:mmkv:1.3.0'
     implementation 'com.getkeepsafe.relinker:relinker:1.4.5'
