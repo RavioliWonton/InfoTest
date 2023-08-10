@@ -1,12 +1,9 @@
-@file:Suppress("BlockingMethodInNonBlockingContext")
-
 package com.example.infotest
 
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.pm.PackageManager
 import android.location.Geocoder
-import android.location.Location
 import android.location.LocationManager
 import android.net.*
 import android.net.Network
@@ -91,21 +88,14 @@ class MainActivity : ComponentActivity() {
         Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO,
         Manifest.permission.POST_NOTIFICATIONS)).minusElement(Manifest.permission.READ_EXTERNAL_STORAGE)
     private val locationServices by lazy { LocationServices.getFusedLocationProviderClient(this) }
-    private val listener by lazy { object : LocationListenerCompat {
-        override fun onLocationChanged(location: Location) {
-            //Log.d("TAG", "LocationData :$location")
+    private val listener by lazy {
+        LocationListenerCompat { location -> //Log.d("TAG", "LocationData :$location")
             GlobalApplication.gps = GPS(location.latitude.toString(), location.longitude.toString(),
                 LocationCompat.getElapsedRealtimeNanos(location))
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && Geocoder.isPresent())
                 Geocoder(this@MainActivity).getFromLocation(location.latitude, location.longitude, 1) {
                     GlobalApplication.address = it.firstOrNull()
                 }
-        }
-
-            override fun onProviderDisabled(provider: String) = Unit
-            override fun onProviderEnabled(provider: String) = Unit
-            @Deprecated("Deprecated in Java", ReplaceWith("Unit"))
-            override fun onStatusChanged(provider: String, status: Int, extras: Bundle?) = Unit
         }
     }
     private val callback by lazy { object : LocationCallback() {

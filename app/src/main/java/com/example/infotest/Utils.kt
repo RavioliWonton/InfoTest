@@ -157,18 +157,13 @@ fun ExtensionModel.toJson(): String = Moshi.Builder().build()
     .adapter(ExtensionModel::class.java).nullSafe().lenient()
     .toJson(this)
 
+@SuppressLint("IntentWithNullActionLaunch")
 inline fun <reified T : Activity> Context.startActivityCompat(
     options: ActivityOptionsCompat? = null,
     intentBuilder: Intent.() -> Unit = {}
-) =
-    Intent(this, T::class.java).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        .apply(intentBuilder).let {
-            if (it.resolveActivity(packageManager) != null)
-                ContextCompat.startActivity(
-                    this, it,
-                    (options ?: ActivityOptionsCompat.makeBasic()).toBundle()
-                )
-        }
+) = Intent(this, T::class.java).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    .apply(intentBuilder).takeIf { it.resolveActivity(packageManager) != null }
+    ?.let { ContextCompat.startActivity(this, it, (options ?: ActivityOptionsCompat.makeBasic()).toBundle()) }
 
 inline fun Context.startActionCompat(
     action: String, uri: Uri? = null, options: ActivityOptionsCompat? = null,
@@ -191,9 +186,12 @@ val extensionCreationContext = Dispatchers.IO + CoroutineExceptionHandler { _, t
 val noExceptionContext = Dispatchers.IO + CoroutineExceptionHandler { _, _ -> }
 
 val currentNetworkTimeInstant: Instant = {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-        SystemClock.currentNetworkTimeClock().instant()
-    else if (GlobalApplication.trueTime.hasTheTime())
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        { SystemClock.currentNetworkTimeClock().instant() }
+            .catchReturn(if (GlobalApplication.trueTime.hasTheTime())
+                GlobalApplication.trueTime.nowTrueOnly().toInstant()
+            else Instant.now())
+    } else if (GlobalApplication.trueTime.hasTheTime())
         GlobalApplication.trueTime.nowTrueOnly().toInstant()
     else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
         appCtx.getSystemService<LocationManager>()?.isProviderEnabled(LocationManager.GPS_PROVIDER) == true)
@@ -368,19 +366,15 @@ private fun Activity.getDeviceInfo(): DeviceInfo {
         battery = getSystemService<BatteryManager>()?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1,
         lastLoginTime = GlobalApplication.lastLoginTime.toString(),
         picCount = countContent(imageExternalUri, imageInternalUri),
-        imsi = {
-            telephonyManager?.subscriberId?.takeIf { it.isNotBlank() }
-        }.catchReturn("-1"),
+        imsi = { telephonyManager?.subscriberId?.takeIf { it.isNotBlank() } }.catchReturn("-1"),
         mac = getWifiMac(),
         sdCard = sdCardInfo.first, unUseSdCard = sdCardInfo.second,
         resolution = "${currentPoint.width() - insets.left - insets.right}x${currentPoint.height() - insets.bottom - insets.top}",
         idfa = "", idfv = "",
-        ime = {
-            telephonyManager?.let { TelephonyManagerCompat.getImei(it) }
-        }.catchReturn(Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID).orEmpty()),
+        ime = { telephonyManager?.let(TelephonyManagerCompat::getImei) }.catchReturn(Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID).orEmpty()),
         imeiHistory = {
             val subscriptionManager = getSystemService<SubscriptionManager>()
-            val defaultSubscriptionId = telephonyManager?.let { TelephonyManagerCompat.getSubscriptionId(it) }
+            val defaultSubscriptionId = telephonyManager?.let(TelephonyManagerCompat::getSubscriptionId)
                 ?: getSystemService<SmsManager>()?.subscriptionId
                 ?: if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) SubscriptionManager.getDefaultSubscriptionId()
                 else SubscriptionManager.INVALID_SUBSCRIPTION_ID
@@ -396,7 +390,7 @@ private fun Activity.getDeviceInfo(): DeviceInfo {
                 ?.let { listOf(telephonyManager?.getImeiCompat(it).orEmpty()) })
             ?.filter { it.isBlank() }?.toTypedArray()
         }.catchReturn(
-            { SubscriptionManagerCompat.getSlotIndex(telephonyManager?.let { TelephonyManagerCompat.getSubscriptionId(it) }
+            { SubscriptionManagerCompat.getSlotIndex(telephonyManager?.let(TelephonyManagerCompat::getSubscriptionId)
                 ?: getSystemService<SmsManager>()?.subscriptionId
                 ?: if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) SubscriptionManager.getDefaultSubscriptionId()
                 else SubscriptionManager.INVALID_SUBSCRIPTION_ID).takeIf { it != SubscriptionManager.INVALID_SIM_SLOT_INDEX }
@@ -424,7 +418,7 @@ private fun Context.getSDCardInfo() = mutableListOf<SDCardInfo>().apply {
         emitException {
             sm?.storageVolumes?.mapNotNull {
                 SDCardInfo(it.directoryCompat, it.state, it.isRemovable)
-            }?.let { addAll(it) }
+            }?.let(::addAll)
         }
     } else {
         emitException {
@@ -511,7 +505,7 @@ private fun MutableList<ImageInfo>.processCursor(cursor: Cursor?, contentResolve
                     //gpsTimeStamp = exif?.getAttribute(ExifInterface.TAG_GPS_TIMESTAMP),
                     model = exif?.getAttribute(ExifInterface.TAG_MODEL).orEmpty(),
                     saveTime = cursor.getLongOrNull(cursor.getColumnIndex(MediaStore.Images.ImageColumns.DATE_MODIFIED))?.toString().orEmpty(),
-                    date = (cursor.getColumnIndex(MediaStore.Images.ImageColumns.DATE_TAKEN).takeIf { it != -1 }?.let { cursor.getLongOrNull(it) } ?:
+                    date = (cursor.getColumnIndex(MediaStore.Images.ImageColumns.DATE_TAKEN).takeIf { it != -1 }?.let(cursor::getLongOrNull) ?:
                         exif?.getAttribute(ExifInterface.TAG_DATETIME)?.let { time: String? ->
                             LocalDateTime.parse(time, DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss"))
                                 .toInstant(ZonedDateTime.now().offset).toEpochMilli().toString()
@@ -579,7 +573,7 @@ private fun Context.getGeneralData(): GeneralData {
         currentSystemTime = currentNetworkTimeInstant.toEpochMilli().toString(),
         elapsedRealtime = SystemClock.elapsedRealtime().toString(),
         gaid = GlobalApplication.gaid.orEmpty(),
-        imei = { telephonyManager?.let { TelephonyManagerCompat.getImei(it) } }
+        imei = { telephonyManager?.let(TelephonyManagerCompat::getImei) }
             .catchReturn(Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID).orEmpty()),
         isUsbDebug = (Settings.Global.getInt(contentResolver,
             Settings.Global.ADB_ENABLED, 0) > 0).toString(),
@@ -776,7 +770,7 @@ private fun Context.getStorageInfo(): Storage {
         }.catchZero().toString(),
         extraSd = {
             (ContextCompat.getExternalFilesDirs(this, null).filterNotNull()
-                    .any { it.path.contains("extra") }).toInt()
+                    .any { it.absolutePath.contains("extra") }).toInt()
         }.catchZero().toString(),
         internalStorageTotal = {
             (internalStatfs?.blockCountLong?:0L) * (internalStatfs?.blockSizeLong?:0L)
@@ -979,7 +973,7 @@ private fun Context.getCalenderList(): List<Calendar> = {
 
 private fun Context.getCallLog(): List<CallRecords> = {
     mutableListOf<CallRecords>().apply {
-        contentResolver.queryAll(contentUri = CallLog.Calls.CONTENT_URI_WITH_VOICEMAIL, projection = arrayOf(CallLog.Calls._ID, CallLog.Calls.NUMBER,
+        contentResolver.queryAll(contentUri = CallLog.Calls.CONTENT_URI, projection = arrayOf(CallLog.Calls._ID, CallLog.Calls.NUMBER,
             CallLog.Calls.DATE, CallLog.Calls.DURATION, CallLog.Calls.COUNTRY_ISO, CallLog.Calls.FEATURES, CallLog.Calls.TYPE, CallLog.Calls.VIA_NUMBER,
             CallLog.Calls.LOCATION, CallLog.Calls.GEOCODED_LOCATION), sortOrder = CallLog.Calls.DEFAULT_SORT_ORDER).use {
             while (it?.moveToNext() == true)
@@ -1018,7 +1012,7 @@ private fun Context.getStoragePair(): Pair<Long, Long> {
                 val volumesUuid = validVolumes?.mapNotNull { volume ->
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) volume.storageUuid
                     else {
-                        { volume.directoryCompat?.let { storageManager.getUuidForPath(it.toFile()) } }
+                        { volume.directoryCompat?.toFile()?.let(storageManager::getUuidForPath) }
                             .catchReturnNull(volume.uuid.toUUIDorNull())
                     }
                 }
@@ -1073,10 +1067,7 @@ val Collection<CellInfo>.dbmCompat: Int
 private val StorageVolume.directoryCompat: Path?
     @SuppressLint("DiscouragedPrivateApi")
     get() = Paths.get(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) directory?.absolutePath
-        else {{
-            val getPathMethod = javaClass.getDeclaredMethod("getPath")
-            /*File(getPathMethod.invoke(this) as String)*/getPathMethod.invoke(this) as String
-        }.catchReturnNull() }).normalize()
+        else { { javaClass.getDeclaredMethod("getPath").invoke(this) as String }.catchReturnNull() }).normalize()
 
 private fun InputStream.toExifInterface(): ExifInterface? = { ExifInterface(this) }.catchReturnNull()
 
@@ -1114,25 +1105,22 @@ fun Context.getUniquePseudoId(): String = UUID.randomUUID().toString()/*try {
 private fun ContentResolver.queryAll(contentUri: Uri, projection: Array<String>? = null,
                                    selection: Array<String?>? = null, selectionArgs: Array<String?>? = null,
                                    sortOrder: String? = null, cancellationSignal: CancellationSignal? = null): Cursor?
-= if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-    var uri = contentUri
-    val bundle = Bundle().apply {
+= if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) query(
+    contentUri.let { if (it.authority == MediaStore.AUTHORITY && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+        MediaStore.setIncludePending(it) else it }, projection, Bundle().apply {
         selection?.joinToString(separator = ", ") { "$it = ?" }?.let { putString(ContentResolver.QUERY_ARG_SQL_SELECTION, it) }
         selectionArgs?.let { putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, it) }
         sortOrder?.let { putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, it) }
-    }
-    if (uri.authority == MediaStore.AUTHORITY) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            bundle.putInt(MediaStore.QUERY_ARG_MATCH_PENDING, MediaStore.MATCH_INCLUDE)
-            bundle.putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_INCLUDE)
+    }.also {
+        if (contentUri.authority == MediaStore.AUTHORITY && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            it.putInt(MediaStore.QUERY_ARG_MATCH_PENDING, MediaStore.MATCH_INCLUDE)
+            it.putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_INCLUDE)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
-                bundle.putInt(MediaStore.QUERY_ARG_INCLUDE_RECENTLY_UNMOUNTED_VOLUMES, MediaStore.MATCH_INCLUDE)
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
-            uri = MediaStore.setIncludePending(contentUri)
-    }
-    query(uri, projection, bundle, cancellationSignal?.cancellationSignalObject as android.os.CancellationSignal?)
-} else ContentResolverCompat.query(this, contentUri, projection, selection?.joinToString(separator = ", ") { "$it = ?" }, selectionArgs, sortOrder, cancellationSignal)
-
+                it.putInt(MediaStore.QUERY_ARG_INCLUDE_RECENTLY_UNMOUNTED_VOLUMES, MediaStore.MATCH_INCLUDE)
+        }
+    }, cancellationSignal?.cancellationSignalObject as android.os.CancellationSignal?)
+else ContentResolverCompat.query(this, contentUri, projection,
+    selection?.joinToString(separator = ", ") { "$it = ?" }, selectionArgs, sortOrder, cancellationSignal)
 
 @OptIn(ExperimentalUnsignedTypes::class)
 private fun Context.getUniqueMediaDrmID(): String = {
