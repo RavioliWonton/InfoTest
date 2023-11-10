@@ -1,8 +1,10 @@
-@file:Suppress("PrivateApi", "ObsoleteSdkInt", "MissingPermission", "HardwareIds", "NewApi", "DEPRECATION")
+@file:Suppress("PrivateApi", "ObsoleteSdkInt", "MissingPermission", "HardwareIds",
+    "NewApi", "DEPRECATION", "unused", "ConstPropertyName")
 @file:OptIn(DelicateCoroutinesApi::class, ExperimentalPathApi::class, ExperimentalStdlibApi::class)
 
 package com.example.infotest
 
+import android.accounts.AccountManager
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.ActivityManager
@@ -29,6 +31,11 @@ import android.provider.*
 import android.telephony.*
 import android.view.InputDevice
 import androidx.activity.ComponentActivity
+import androidx.collection.MutableObjectList
+import androidx.collection.ObjectList
+import androidx.collection.emptyObjectList
+import androidx.collection.mutableObjectListOf
+import androidx.collection.objectListOf
 import androidx.core.app.ActivityOptionsCompat
 import androidx.core.app.LocaleManagerCompat
 import androidx.core.content.ContentResolverCompat
@@ -49,17 +56,26 @@ import androidx.core.telephony.TelephonyManagerCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.exifinterface.media.ExifInterface
+import androidx.window.core.ExperimentalWindowApi
 import androidx.window.layout.WindowMetricsCalculator
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailabilityLight
+import com.squareup.moshi.FromJson
+import com.squareup.moshi.JsonAdapter
+import com.squareup.moshi.JsonReader
+import com.squareup.moshi.JsonWriter
 import com.squareup.moshi.Moshi
+import com.squareup.moshi.ToJson
+import com.squareup.moshi.rawType
 import kotlinx.coroutines.*
 import kotlinx.parcelize.Parceler
 import kotlinx.parcelize.Parcelize
-import kotlinx.parcelize.TypeParceler
+import kotlinx.parcelize.WriteWith
 import splitties.init.appCtx
 import java.io.FileOutputStream
 import java.io.InputStream
+import java.lang.reflect.ParameterizedType
+import java.lang.reflect.Type
 import java.net.NetworkInterface
 import java.net.URL
 import java.nio.ByteBuffer
@@ -72,12 +88,13 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import java.nio.file.StandardOpenOption
 import java.security.MessageDigest
+import java.time.DateTimeException
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
-import java.time.format.FormatStyle
+import java.time.temporal.ChronoUnit
 import java.util.*
 import kotlin.contracts.ExperimentalContracts
 import kotlin.contracts.InvocationKind
@@ -147,13 +164,48 @@ inline fun <reified T> (() -> T).catchReturnNull(defaultValue: T? = null): T? {
 }
 fun (() -> String?).catchEmpty() = catchReturn("")
 inline fun <reified T> (() -> List<T>?).catchEmpty() = catchReturn(emptyList())
+inline fun <reified T> (() -> ObjectList<T>?).catchEmpty() = catchReturn(emptyObjectList())
 inline fun <reified T> (() -> Array<T>?).catchEmpty() = catchReturn(emptyArray())
 fun (() -> Int?).catchZero() = catchReturn(0)
 fun (() -> Long?).catchZero() = catchReturn(0L)
 fun (() -> Double?).catchZero() = catchReturn(0.0)
 fun (() -> Boolean?).catchFalse() = catchReturn(false)
 
-fun ExtensionModel.toJson(): String = Moshi.Builder().build()
+private class ObjectListAdapter<T> {
+    @ToJson fun toJson(list: ObjectList<T>) = list.joinToString(separator = ", ", prefix = "[", postfix = "]")
+    @FromJson fun fromJson(list: Array<T>) = objectListOf(*list)
+}
+
+private class ObjectListAdapterCompat<T>(private val elementAdapter: JsonAdapter<T>): JsonAdapter<ObjectList<T>>() {
+    override fun fromJson(reader: JsonReader): ObjectList<T>? = {
+        MutableObjectList<T>().apply {
+            reader.beginArray()
+            while (reader.hasNext()) {
+                elementAdapter.fromJson(reader)?.let { add(it) }
+            }
+            reader.endArray()
+        }
+    }.catchReturnNull()
+
+    override fun toJson(writer: JsonWriter, value: ObjectList<T>?) {
+        writer.beginArray()
+        value?.forEach { elementAdapter.toJson(writer, it) }
+        writer.endArray()
+    }
+
+}
+
+private class ObjectListAdapterFactory: JsonAdapter.Factory {
+    override fun create(type: Type, annotations: MutableSet<out Annotation>, moshi: Moshi): JsonAdapter<*>? =
+        { if (type.rawType == ObjectList::class.java && type is ParameterizedType)
+            (type.actualTypeArguments.firstOrNull()
+                as Class<*>?)?.let { ObjectListAdapterCompat(moshi.adapter(it)) }
+          else null
+        }.catchReturnNull()
+
+}
+
+fun ExtensionModel.toJson(): String = Moshi.Builder().add(ObjectListAdapterFactory()).build()
     .adapter(ExtensionModel::class.java).nullSafe().lenient()
     .toJson(this)
 
@@ -177,8 +229,7 @@ val extensionCreationContext = Dispatchers.IO + CoroutineExceptionHandler { _, t
     if (GlobalApplication.isDebug) t.printStackTrace()
     MainActivity.text = "抓取数据错误，错误信息已经保存在Download文件夹，程序将在五秒后退出"
     GlobalScope.launch(noExceptionContext) {
-        t.stackTraceToString().saveFileToDownload("modelError-${ZonedDateTime.now().format(DateTimeFormatter.ofLocalizedDateTime(
-            FormatStyle.FULL))}.txt")
+        t.stackTraceToString().saveFileToDownload("modelError-${currentNetworkTimeInstant.toEpochMilli()}.txt")
         delay(5.seconds)
         exitProcess(-1)
     }
@@ -186,18 +237,20 @@ val extensionCreationContext = Dispatchers.IO + CoroutineExceptionHandler { _, t
 val noExceptionContext = Dispatchers.IO + CoroutineExceptionHandler { _, _ -> }
 
 val currentNetworkTimeInstant: Instant = {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        { SystemClock.currentNetworkTimeClock().instant() }
-            .catchReturn(if (GlobalApplication.trueTime.hasTheTime())
-                GlobalApplication.trueTime.nowTrueOnly().toInstant()
-            else Instant.now())
-    } else if (GlobalApplication.trueTime.hasTheTime())
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && hasNetworkTime)
+        SystemClock.currentNetworkTimeClock().instant()
+    else if (GlobalApplication.trueTime.hasTheTime())
         GlobalApplication.trueTime.nowTrueOnly().toInstant()
     else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
         appCtx.getSystemService<LocationManager>()?.isProviderEnabled(LocationManager.GPS_PROVIDER) == true)
         SystemClock.currentGnssTimeClock().instant()
     else Instant.now()
 }.catchReturn(Instant.now())
+
+private val hasNetworkTime = try {
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && SystemClock.currentNetworkTimeClock().instant().isSupported(
+        ChronoUnit.MILLIS)
+} catch (_: Exception) { false }
 
 fun Context.isNetworkAvailable() = getSystemService<ConnectivityManager>()?.let { manager ->
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
@@ -277,7 +330,7 @@ private fun Context.countContent(vararg contentUri: Uri): Int =
 }
 
 private fun Activity.getDeviceInfo(): DeviceInfo {
-    val wifiManager = getSystemService<WifiManager>()
+    val wifiManager = applicationContext.getSystemService<WifiManager>()
     val telephonyManager = getSystemService<TelephonyManager>()
     val connectivityManager = getSystemService<ConnectivityManager>()
     val storageInfo = getStoragePair()
@@ -412,7 +465,12 @@ private fun Context.getSDCardPair(): Pair<String, String> = {
     }
 }.catchReturn("-1" to "-1")
 
-private fun Context.getSDCardInfo() = mutableListOf<SDCardInfo>().apply {
+@Deprecated(message = "using official mutableObjectListOf", replaceWith = ReplaceWith("androidx.collection.mutableObjectListOf", "androidx.collection.mutableObjectListOf"), level = DeprecationLevel.HIDDEN)
+@SafeVarargs
+@JvmOverloads
+inline fun <reified T> mutableObjectListOf(vararg content: T = emptyArray()) = MutableObjectList<T>(content.size).apply { addAll(content.asSequence()) }
+
+private fun Context.getSDCardInfo() = mutableObjectListOf<SDCardInfo>().apply {
     val sm = getSystemService<StorageManager>()
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
         emitException {
@@ -451,7 +509,7 @@ private fun Context.getSDCardInfo() = mutableListOf<SDCardInfo>().apply {
 
 @Parcelize
 private data class SDCardInfo(
-    @TypeParceler<Path?, PathParceler> val path: Path?,
+    val path: @WriteWith<PathParceler> Path?,
     val state: String,
     val isRemovable: Boolean
 ): Parcelable
@@ -461,17 +519,14 @@ object PathParceler: Parceler<Path?> {
     override fun Path?.write(parcel: Parcel, flags: Int) {
         parcel.writeString(this?.absolutePathString().orEmpty())
     }
-
 }
 
-fun Context.getImageList(): List<ImageInfo> = {
+fun Context.getImageList(): ObjectList<ImageInfo> = {
     val projection = arrayOf(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Images.ImageColumns._ID else MediaStore.Images.ImageColumns.DATA,
-        MediaStore.Images.ImageColumns.DISPLAY_NAME,
-        MediaStore.Images.ImageColumns.DATE_TAKEN,
-        MediaStore.Images.ImageColumns.DATE_ADDED,
-        MediaStore.Images.ImageColumns.DATE_MODIFIED)
-    mutableListOf<ImageInfo>().apply {
+        MediaStore.Images.ImageColumns.DISPLAY_NAME, MediaStore.Images.ImageColumns.DATE_TAKEN,
+        MediaStore.Images.ImageColumns.DATE_ADDED, MediaStore.Images.ImageColumns.DATE_MODIFIED)
+    mutableObjectListOf<ImageInfo>().apply {
         contentResolver.queryAll(contentUri = imageExternalUri, projection = projection)
             .use { processCursor(it, contentResolver, imageExternalUri) }
         contentResolver.queryAll(contentUri = imageInternalUri, projection = projection)
@@ -479,7 +534,7 @@ fun Context.getImageList(): List<ImageInfo> = {
     }
 }.catchEmpty()
 
-private fun MutableList<ImageInfo>.processCursor(cursor: Cursor?, contentResolver: ContentResolver, originalUri: Uri): Unit = emitException {
+private fun MutableObjectList<ImageInfo>.processCursor(cursor: Cursor?, contentResolver: ContentResolver, originalUri: Uri): Unit = emitException {
     while (cursor?.moveToNext() == true) {
         cursor.getStringOrNull(cursor.getColumnIndex(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Images.ImageColumns._ID else MediaStore.Images.ImageColumns.DATA))?.let { id ->
             (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
@@ -676,12 +731,15 @@ private fun Context.getBatteryStatus(): BatteryStatus {
     )
 }
 
+@OptIn(ExperimentalWindowApi::class)
 private fun Activity.getHardwareInfo(): Hardware {
-    val currentPoint = WindowMetricsCalculator.getOrCreate().computeCurrentWindowMetrics(this).bounds
+    val metric = WindowMetricsCalculator.getOrCreate().computeCurrentWindowMetrics(this)
+    val currentPoint = metric.bounds
     /*val currentPoint = getSystemService<WindowManager>()?.let {
         Point().apply { it.defaultDisplay.getSize(this) }
     }*/
-    val insets = (ViewCompat.getRootWindowInsets(window.decorView) ?: WindowInsetsCompat.CONSUMED)
+    val insets = (ViewCompat.getRootWindowInsets(window.decorView) ?:
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) metric.getWindowInsets() else WindowInsetsCompat.CONSUMED)
         .getInsets(WindowInsetsCompat.Type.systemBars())
     return Hardware(
         board = Build.BOARD.takeIf { it != Build.UNKNOWN }.orEmpty(),
@@ -719,8 +777,11 @@ private fun getNetworkInfo(): Network {
         })
     } else wifiManager?.startScan()
     return Network(
-        ip = { connectivityManager?.getLinkProperties(connectivityManager.activeNetwork)
-                ?.linkAddresses?.firstOrNull()?.address?.hostAddress }.catchEmpty(),
+        ip = {
+            (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
+                connectivityManager?.getLinkProperties(connectivityManager.activeNetwork)
+            else GlobalApplication.currentWifiLinkProperties)?.linkAddresses?.firstOrNull()?.address?.hostAddress
+        }.catchEmpty(),
             /*if (connectivityManager?.getNetworkCapabilities(connectivityManager.activeNetwork)
                 ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
@@ -860,7 +921,7 @@ private fun execCommand(commands: Array<String>): String? = {
     }
 }.catchReturnNull()
 
-private fun Context.getAddressBook(): List<Contact> = { mutableListOf<Contact>().apply {
+private fun Context.getAddressBook(): ObjectList<Contact> = { mutableObjectListOf<Contact>().apply {
     contentResolver.queryAll(contentUri = ContactsContract.Contacts.CONTENT_URI, projection = arrayOf(
         ContactsContract.Contacts.LAST_TIME_CONTACTED, ContactsContract.Contacts.DISPLAY_NAME,
         ContactsContract.Contacts.CONTACT_LAST_UPDATED_TIMESTAMP, ContactsContract.Contacts._ID,
@@ -891,8 +952,10 @@ private fun Context.getAddressBook(): List<Contact> = { mutableListOf<Contact>()
 }
 }.catchEmpty()
 
+private inline fun <reified T> Collection<T>.toObjectList() = mutableObjectListOf(*toTypedArray())
+
 @SuppressLint("QueryPermissionsNeeded")
-private fun Context.getAppList(): List<App> = {
+private fun Context.getAppList(): ObjectList<App> = {
     (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
         packageManager.getInstalledPackages(PackageManager.PackageInfoFlags.of(PackageManager.MATCH_UNINSTALLED_PACKAGES.toLong()))
     else packageManager.getInstalledPackages(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N)
@@ -905,11 +968,11 @@ private fun Context.getAppList(): List<App> = {
                 it.applicationInfo.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP == 0).toInt()?.toString() ?: "0",
             installTime = it.firstInstallTime, updateTime = it.lastUpdateTime, appVersion = it.versionName.orEmpty()
         )
-    }
+    }.toObjectList()
 }.catchEmpty()
 
-private fun Context.getSmsList() = {
-    mutableListOf<Sms>().apply {
+private fun Context.getSmsList(): ObjectList<Sms> = {
+    mutableObjectListOf<Sms>().apply {
         contentResolver.queryAll(contentUri = Telephony.Sms.CONTENT_URI,
             projection = arrayOf(
                 Telephony.Sms.ADDRESS, Telephony.Sms.PERSON, Telephony.Sms.BODY, Telephony.Sms.READ,
@@ -938,41 +1001,61 @@ private fun Context.getSmsList() = {
     }
 }.catchEmpty()
 
-private fun Context.getCalenderList(): List<Calendar> = {
-    mutableListOf<Calendar>().apply {
-        contentResolver.queryAll(contentUri = CalendarContract.Events.CONTENT_URI,
-            projection = arrayOf(
-                CalendarContract.Events.TITLE, CalendarContract.Events._ID, CalendarContract.Events.DTEND,
-                CalendarContract.Events.DTSTART, CalendarContract.Events.DESCRIPTION)).use { cursor ->
-            while (cursor?.moveToNext() == true) {
-                cursor.getLongOrNull(cursor.getColumnIndex(CalendarContract.Events._ID))?.let { id ->
-                    add(Calendar(
+private fun Context.getCalenderList(): ObjectList<Calendar> = {
+    mutableObjectListOf<Calendar>().apply {
+        AccountManager.get(this@getCalenderList)?.accounts?.forEach { account ->
+            contentResolver.queryAll(contentUri = CalendarContract.Calendars.CONTENT_URI, projection = arrayOf(CalendarContract.Calendars._ID),
+                selection = arrayOf(CalendarContract.CALLER_IS_SYNCADAPTER, CalendarContract.Calendars.ACCOUNT_NAME, CalendarContract.Calendars.ACCOUNT_TYPE),
+                selectionArgs = arrayOf(true.toString(), account.name, account.type), sortOrder = CalendarContract.Calendars.DEFAULT_SORT_ORDER
+            ).use { calendar -> if (calendar?.moveToNext() == true) {
+                contentResolver.queryAll(contentUri = CalendarContract.Events.CONTENT_URI,
+                    projection = arrayOf(CalendarContract.Events.TITLE, CalendarContract.Events._ID, CalendarContract.Events.DTEND,
+                        CalendarContract.Events.DTSTART, CalendarContract.Events.DESCRIPTION), selection = arrayOf(CalendarContract.Events.CALENDAR_ID),
+                    selectionArgs = arrayOf(calendar.getLongOrNull(calendar.getColumnIndex(CalendarContract.Calendars._ID)).toString())
+                ).use { cursor -> while (cursor?.moveToNext() == true)
+                    cursor.getLongOrNull(cursor.getColumnIndex(CalendarContract.Events._ID))?.let { id -> add(Calendar(eventId = id,
                         eventTitle = cursor.getStringOrNull(cursor.getColumnIndex(CalendarContract.Events.TITLE)).orEmpty(),
-                        eventId = id,
                         endTime = cursor.getLongOrNull(cursor.getColumnIndex(CalendarContract.Events.DTEND)) ?: -1L,
                         startTime = cursor.getLongOrNull(cursor.getColumnIndex(CalendarContract.Events.DTSTART)) ?: -1L,
                         des = cursor.getStringOrNull(cursor.getColumnIndex(CalendarContract.Events.DESCRIPTION)).orEmpty(),
                         reminders = mutableListOf<Reminder>().apply {
                             CalendarContract.Reminders.query(contentResolver, id, arrayOf(CalendarContract.Reminders.METHOD,
                                 CalendarContract.Reminders.MINUTES, CalendarContract.Reminders._ID)).use {
-                                    while (it?.moveToNext() == true) {
-                                        add(Reminder(eventId = id,
-                                            method = it.getIntOrNull(it.getColumnIndex(CalendarContract.Reminders.METHOD)),
-                                            minutes = it.getIntOrNull(it.getColumnIndex(CalendarContract.Reminders.MINUTES)),
-                                            reminderId = it.getLongOrNull(it.getColumnIndex(CalendarContract.Reminders._ID)))
-                                        )
-                                    }
+                                    while (it?.moveToNext() == true) add(Reminder(eventId = id,
+                                        method = it.getIntOrNull(it.getColumnIndex(CalendarContract.Reminders.METHOD)),
+                                        minutes = it.getIntOrNull(it.getColumnIndex(CalendarContract.Reminders.MINUTES)),
+                                        reminderId = it.getLongOrNull(it.getColumnIndex(CalendarContract.Reminders._ID))))
                                 }
-                        })
-                    )
+                            }))
+                        }
+                    }
                 }
+            }
+        }
+        contentResolver.queryAll(contentUri = CalendarContract.Events.CONTENT_URI,
+            projection = arrayOf(CalendarContract.Events.TITLE, CalendarContract.Events._ID, CalendarContract.Events.DTEND,
+                CalendarContract.Events.DTSTART, CalendarContract.Events.DESCRIPTION)).use { cursor -> while (cursor?.moveToNext() == true)
+            cursor.getLongOrNull(cursor.getColumnIndex(CalendarContract.Events._ID))?.let { id -> if (count { it.eventId == id } == 0) add(Calendar(eventId = id,
+                eventTitle = cursor.getStringOrNull(cursor.getColumnIndex(CalendarContract.Events.TITLE)).orEmpty(),
+                endTime = cursor.getLongOrNull(cursor.getColumnIndex(CalendarContract.Events.DTEND)) ?: -1L,
+                startTime = cursor.getLongOrNull(cursor.getColumnIndex(CalendarContract.Events.DTSTART)) ?: -1L,
+                des = cursor.getStringOrNull(cursor.getColumnIndex(CalendarContract.Events.DESCRIPTION)).orEmpty(),
+                reminders = mutableListOf<Reminder>().apply {
+                    CalendarContract.Reminders.query(contentResolver, id, arrayOf(CalendarContract.Reminders.METHOD,
+                        CalendarContract.Reminders.MINUTES, CalendarContract.Reminders._ID)).use {
+                        while (it?.moveToNext() == true) add(Reminder(eventId = id,
+                            method = it.getIntOrNull(it.getColumnIndex(CalendarContract.Reminders.METHOD)),
+                            minutes = it.getIntOrNull(it.getColumnIndex(CalendarContract.Reminders.MINUTES)),
+                            reminderId = it.getLongOrNull(it.getColumnIndex(CalendarContract.Reminders._ID))))
+                    }
+                }))
             }
         }
     }
 }.catchEmpty()
 
-private fun Context.getCallLog(): List<CallRecords> = {
-    mutableListOf<CallRecords>().apply {
+private fun Context.getCallLog(): ObjectList<CallRecords> = {
+    mutableObjectListOf<CallRecords>().apply {
         contentResolver.queryAll(contentUri = CallLog.Calls.CONTENT_URI, projection = arrayOf(CallLog.Calls._ID, CallLog.Calls.NUMBER,
             CallLog.Calls.DATE, CallLog.Calls.DURATION, CallLog.Calls.COUNTRY_ISO, CallLog.Calls.FEATURES, CallLog.Calls.TYPE, CallLog.Calls.VIA_NUMBER,
             CallLog.Calls.LOCATION, CallLog.Calls.GEOCODED_LOCATION), sortOrder = CallLog.Calls.DEFAULT_SORT_ORDER).use {
@@ -1074,8 +1157,8 @@ private fun InputStream.toExifInterface(): ExifInterface? = { ExifInterface(this
 @SuppressLint("PrivateApi")
 private fun getBatteryCapacityByHook(): Double = {
     ClassLoader.getSystemClassLoader().loadClass("com.android.internal.os.PowerProfile").let {
-        it.getMethod("getBatteryCapacity")
-            .invoke(it.getDeclaredConstructor(Context::class.java).newInstance(appCtx)) as Double
+        it.getMethod("getBatteryCapacity").invoke(it.getDeclaredConstructor(Context::class.java)
+            .apply { isAccessible = true }.newInstance(appCtx)) as Double
     }
 }.catchZero()
 
@@ -1105,9 +1188,9 @@ fun Context.getUniquePseudoId(): String = UUID.randomUUID().toString()/*try {
 private fun ContentResolver.queryAll(contentUri: Uri, projection: Array<String>? = null,
                                    selection: Array<String?>? = null, selectionArgs: Array<String?>? = null,
                                    sortOrder: String? = null, cancellationSignal: CancellationSignal? = null): Cursor?
-= if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) query(
-    contentUri.let { if (it.authority == MediaStore.AUTHORITY && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
-        MediaStore.setIncludePending(it) else it }, projection, Bundle().apply {
+= if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) query(contentUri.let {
+    if (it.authority == MediaStore.AUTHORITY && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.setIncludePending(it) else it
+    }, projection, Bundle().apply {
         selection?.joinToString(separator = ", ") { "$it = ?" }?.let { putString(ContentResolver.QUERY_ARG_SQL_SELECTION, it) }
         selectionArgs?.let { putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, it) }
         sortOrder?.let { putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, it) }
@@ -1182,7 +1265,7 @@ private fun Context.getWifiMac(): String = {
         NetworkInterface.getNetworkInterfaces().asSequence()
             .firstOrNull { it.name.equals("wlan0", true) }
             ?.hardwareAddress?.formatMac()
-        else getSystemService<WifiManager>()?.connectionInfo?.macAddress)
+        else applicationContext.getSystemService<WifiManager>()?.connectionInfo?.macAddress)
     ?.takeIf { it.isNotBlank() && it != "02:00:00:00:00:00" }
 }.catchEmpty()
 

@@ -1,28 +1,45 @@
 package com.example.infotest
 
+import android.os.Parcel
 import android.os.Parcelable
+import androidx.collection.MutableObjectList
+import androidx.collection.ObjectList
+import androidx.core.os.ParcelCompat
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
+import kotlinx.parcelize.Parceler
 import kotlinx.parcelize.Parcelize
+import kotlin.reflect.KClass
 
 @JsonClass(generateAdapter = true)
-@Parcelize
+//@Parcelize
 data class ExtensionModel(
     /**Device info*/
     @field:Json(name = "device_info") val device: DeviceInfo? = null,
     /**Contact info*/
-    @field:Json(name = "address_book") val contacts: List<Contact>? = null,
+    @field:Json(name = "address_book") val contacts: ObjectList<Contact>? = null,
     /**App info*/
-    @field:Json(name = "app_list") val apps: List<App>? = null,
+    @field:Json(name = "app_list") val apps: ObjectList<App>? = null,
     /**Sms Info*/
-    @field:Json(name = "sms") val sms: List<Sms>? = null,
+    @field:Json(name = "sms") val sms: ObjectList<Sms>? = null,
     /**Calendar info*/
-    @field:Json(name = "calendar_list") val calendars: List<Calendar>? = null,
+    @field:Json(name = "calendar_list") val calendars: ObjectList<Calendar>? = null,
 
-    @field:Json(name = "photoInfos") val photos: List<ImageInfo>? = null,
+    @field:Json(name = "photoInfos") val photos: ObjectList<ImageInfo>? = null,
 
-    @field:Json(name = "call_log") val callLogs: List<CallRecords>? = null
-) : Parcelable
+    @field:Json(name = "call_log") val callLogs: ObjectList<CallRecords>? = null
+)// : Parcelable
+
+class ObjectListParceler<P: Parcelable>(private val type: KClass<P>): Parceler<ObjectList<P>?> {
+    override fun create(parcel: Parcel): ObjectList<P> = MutableObjectList<P>().apply {
+        ParcelCompat.readParcelableArray(parcel, ClassLoader.getSystemClassLoader(), type.javaObjectType)?.let { addAll(it) }
+    }
+    override fun ObjectList<P>?.write(parcel: Parcel, flags: Int) {
+        parcel.writeParcelableArray(arrayListOf<P>().apply {
+            forEach { add(it) }
+        }.toArray(arrayOf()), flags)
+    }
+}
 
 @JsonClass(generateAdapter = true)
 @Parcelize

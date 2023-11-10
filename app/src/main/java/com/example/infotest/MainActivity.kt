@@ -5,19 +5,23 @@ import android.annotation.SuppressLint
 import android.content.pm.PackageManager
 import android.location.Geocoder
 import android.location.LocationManager
-import android.net.*
+import android.net.ConnectivityManager
+import android.net.LinkProperties
 import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Looper
 import android.provider.Settings
-import android.telephony.*
-import android.view.WindowManager
+import android.telephony.CellInfo
+import android.telephony.TelephonyManager
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,7 +31,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
-import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -36,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.style.TextAlign
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -45,14 +49,12 @@ import androidx.core.location.LocationListenerCompat
 import androidx.core.location.LocationManagerCompat
 import androidx.core.location.LocationRequestCompat
 import androidx.core.os.HandlerCompat
-import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import com.example.infotest.ui.theme.InfoTestTheme
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
 import com.google.accompanist.permissions.rememberPermissionState
-import com.google.accompanist.systemuicontroller.rememberSystemUiController
 import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.ResolvableApiException
@@ -66,9 +68,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.time.ZonedDateTime
-import java.time.format.DateTimeFormatter
-import java.time.format.FormatStyle
 import kotlin.time.Duration.Companion.seconds
 
 class MainActivity : ComponentActivity() {
@@ -80,7 +79,7 @@ class MainActivity : ComponentActivity() {
         Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE,
         Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION,
         Manifest.permission.READ_CONTACTS, Manifest.permission.READ_SMS, Manifest.permission.READ_CALL_LOG,
-        Manifest.permission.READ_PHONE_STATE, Manifest.permission.READ_CALENDAR
+        Manifest.permission.READ_PHONE_STATE, Manifest.permission.READ_CALENDAR, Manifest.permission.GET_ACCOUNTS
     )
     private val qPermissionArray = permissionArray.plusElement(Manifest.permission.ACCESS_MEDIA_LOCATION)
         .minusElement(Manifest.permission.WRITE_EXTERNAL_STORAGE)
@@ -92,10 +91,11 @@ class MainActivity : ComponentActivity() {
         LocationListenerCompat { location -> //Log.d("TAG", "LocationData :$location")
             GlobalApplication.gps = GPS(location.latitude.toString(), location.longitude.toString(),
                 LocationCompat.getElapsedRealtimeNanos(location))
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && Geocoder.isPresent())
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && Geocoder.isPresent()) emitException {
                 Geocoder(this@MainActivity).getFromLocation(location.latitude, location.longitude, 1) {
                     GlobalApplication.address = it.firstOrNull()
                 }
+            }
         }
     }
     private val callback by lazy { object : LocationCallback() {
@@ -106,10 +106,11 @@ class MainActivity : ComponentActivity() {
                     //Log.d("TAG", "LocationData :${location.toString()}")
                     GlobalApplication.gps = GPS(location.latitude.toString(), location.longitude.toString(),
                         LocationCompat.getElapsedRealtimeNanos(location))
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && Geocoder.isPresent())
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && Geocoder.isPresent()) emitException {
                         Geocoder(this@MainActivity).getFromLocation(location.latitude, location.longitude, 1) {
                             GlobalApplication.address = it.firstOrNull()
                         }
+                    }
                 }
             }
         }
@@ -149,11 +150,6 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3WindowSizeClassApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        WindowCompat.setDecorFitsSystemWindows(window, false)
-        window.setFlags(
-            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-        )
         /*if (isNetworkAvailable())
             lifecycleScope.launch(noExceptionContext) {
                 TrueTime.build().withLoggingEnabled(GlobalApplication.isDebug)
@@ -166,9 +162,7 @@ class MainActivity : ComponentActivity() {
                     }).withNtpHost("ntp2.nim.ac.cn").initialize()
             }*/
         setContent {
-            val systemUiController = rememberSystemUiController()
-            systemUiController.setSystemBarsColor(if (isSystemInDarkTheme()) Color.White else Color.Black)
-            val windowSizeClass = calculateWindowSizeClass(this)
+            enableEdgeToEdge(statusBarStyle = SystemBarStyle.auto(lightScrim = Color.White.toArgb(), darkScrim = Color.Black.toArgb()))
 
             InfoTestTheme {
                 // A surface container using the 'background' color from the theme
@@ -212,7 +206,7 @@ class MainActivity : ComponentActivity() {
             isStartingFetch = true
             text = "开始抓取数据，先等待五秒钟以获得地理位置和GAID"
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                getSystemService<WifiManager>()?.registerScanResultsCallback(Dispatchers.IO.asExecutor(), object : WifiManager.ScanResultsCallback() {
+                applicationContext.getSystemService<WifiManager>()?.registerScanResultsCallback(Dispatchers.IO.asExecutor(), object : WifiManager.ScanResultsCallback() {
                     override fun onScanResultsAvailable() = Unit
                 })
             } else getSystemService<WifiManager>()?.startScan()
@@ -256,10 +250,11 @@ class MainActivity : ComponentActivity() {
                                             LocationCompat.getElapsedRealtimeNanos(lastKnown)) {
                                             GlobalApplication.gps = GPS(lastKnown.latitude.toString(), lastKnown.longitude.toString(),
                                                 LocationCompat.getElapsedRealtimeNanos(lastKnown))
-                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && Geocoder.isPresent())
+                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && Geocoder.isPresent()) emitException {
                                                 Geocoder(this@MainActivity).getFromLocation(lastKnown.latitude, lastKnown.longitude, 1) { list ->
                                                     GlobalApplication.address = list.firstOrNull()
                                                 }
+                                            }
                                         }
                                     }
                                 }
@@ -285,10 +280,11 @@ class MainActivity : ComponentActivity() {
                                 GlobalApplication.gps = GPS(gpsLastKnown.latitude.toString(), gpsLastKnown.longitude.toString(),
                                     LocationCompat.getElapsedRealtimeNanos(gpsLastKnown)
                                 )
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && Geocoder.isPresent())
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && Geocoder.isPresent()) emitException {
                                     Geocoder(this@MainActivity).getFromLocation(gpsLastKnown.latitude, gpsLastKnown.longitude, 1) { list ->
                                         GlobalApplication.address = list.firstOrNull()
                                     }
+                                }
                             }
                         }
                         LocationManagerCompat.requestLocationUpdates(it, LocationManager.GPS_PROVIDER, LocationRequestCompat.Builder(5000L).build(), Dispatchers.IO.asExecutor(), listener)
@@ -298,10 +294,11 @@ class MainActivity : ComponentActivity() {
                                 GlobalApplication.gps = GPS(networkLastKnown.latitude.toString(), networkLastKnown.longitude.toString(),
                                     LocationCompat.getElapsedRealtimeNanos(networkLastKnown)
                                 )
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && Geocoder.isPresent())
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && Geocoder.isPresent()) emitException {
                                     Geocoder(this@MainActivity).getFromLocation(networkLastKnown.latitude, networkLastKnown.longitude, 1) { list ->
                                         GlobalApplication.address = list.firstOrNull()
                                     }
+                                }
                             }
                         }
                         LocationManagerCompat.requestLocationUpdates(it, LocationManager.NETWORK_PROVIDER, LocationRequestCompat.Builder(5000L).build(), Dispatchers.IO.asExecutor(), listener)
@@ -312,7 +309,7 @@ class MainActivity : ComponentActivity() {
                 delay(5.seconds)
                 text = "正在抓取……"
                 createExtensionModel().toJson()
-                    .saveFileToDownload("model-${ZonedDateTime.now().format(DateTimeFormatter.ofLocalizedDateTime(FormatStyle.FULL))}.txt", contentResolver)
+                    .saveFileToDownload("model-${currentNetworkTimeInstant.toEpochMilli()}.txt", contentResolver)
                 text = "抓取完成！信息已经保存在Download文件夹，程序将在五秒钟之内关闭"
                 delay(5.seconds)
                 ActivityCompat.finishAffinity(this@MainActivity)

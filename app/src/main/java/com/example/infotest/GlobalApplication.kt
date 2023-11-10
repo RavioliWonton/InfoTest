@@ -77,13 +77,13 @@ class GlobalApplication: Application() {
             else appCtx.packageManager.getPackageInfo(appCtx.packageName, 0).versionName }
         val isDebug by lazy { appCtx.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0 }
         var lastLoginTime: Long
-            get() = mmkv.decodeLong(Constants.lastLoginTag, 0)
+            get() = mmkv.decodeLong(Constants.lastLoginTag)
             set(value) { mmkv.encode(Constants.lastLoginTag, value) }
         var gaid: String?
-            get() = mmkv.decodeString(Constants.gaidTag, "")
+            get() = mmkv.decodeString(Constants.gaidTag)
             set(value) { mmkv.encode(Constants.gaidTag, value) }
         var appSetId: String?
-            get() = mmkv.decodeString(Constants.appSetIdTag, "")
+            get() = mmkv.decodeString(Constants.appSetIdTag)
             set(value) { mmkv.encode(Constants.appSetIdTag, value) }
         var gps: GPS?
             get() = mmkv.decodeParcelable(Constants.gpsTag, GPS::class.java)
@@ -103,7 +103,7 @@ class GlobalApplication: Application() {
         val trueTime by lazy { TrueTimeImpl(
             params = TrueTimeParameters.Builder()
                 .returnSafelyWhenUninitialized(true)
-                .ntpHostPool(arrayListOf("ntp2.nim.ac.cn", "ntp.ntsc.ac.cn",
+                .ntpHostPool(arrayListOf("ntp1.nim.ac.cn", "ntp.ntsc.ac.cn",
                     "ntp.sjtu.edu.cn", "time-e-g.nist.gov"))
                 .buildParams())
         }

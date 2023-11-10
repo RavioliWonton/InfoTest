@@ -2,17 +2,37 @@
 <project version="4">
   <component name="deploymentTargetDropDown">
     <value>
-      <entry key="InfoTest [dependencyUpdates]">
-        <State />
-      </entry>
-      <entry key="InfoTest [projectReport]">
-        <State />
-      </entry>
-      <entry key="InfoTest:app [dependencyUpdates]">
-        <State />
+      <entry key="StartupProfileGenerator">
+        <State>
+          <targetSelectedWithDropDown>
+            <Target>
+              <type value="QUICK_BOOT_TARGET" />
+              <deviceKey>
+                <Key>
+                  <type value="VIRTUAL_DEVICE_PATH" />
+                  <value value="$USER_HOME$/.android/avd/Pixel_6_Pro_API_UpsideDownCake.avd" />
+                </Key>
+              </deviceKey>
+            </Target>
+          </targetSelectedWithDropDown>
+          <timeTargetWasSelectedWithDropDown value="2023-08-31T03:42:20.910569Z" />
+        </State>
       </entry>
       <entry key="app">
-        <State />
+        <State>
+          <targetSelectedWithDropDown>
+            <Target>
+              <type value="QUICK_BOOT_TARGET" />
+              <deviceKey>
+                <Key>
+                  <type value="VIRTUAL_DEVICE_PATH" />
+                  <value value="$USER_HOME$/.android/avd/Pixel_6_Pro_API_UpsideDownCake.avd" />
+                </Key>
+              </deviceKey>
+            </Target>
+          </targetSelectedWithDropDown>
+          <timeTargetWasSelectedWithDropDown value="2023-11-10T07:12:17.328309Z" />
+        </State>
       </entry>
     </value>
   </component>
