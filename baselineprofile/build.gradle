@@ -45,14 +45,15 @@ baselineProfile {
 }
 
 dependencies {
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.20'
     implementation 'androidx.tracing:tracing-ktx:1.3.0-alpha02'
     implementation 'androidx.annotation:annotation:1.7.0'
     implementation 'androidx.annotation:annotation-experimental:1.4.0-dev01'
     implementation 'androidx.concurrent:concurrent-futures-ktx:1.2.0-alpha02'
-    implementation 'androidx.lifecycle:lifecycle-common-java8:2.7.0-alpha03'
+    implementation 'androidx.lifecycle:lifecycle-common-java8:2.7.0-rc01'
     implementation 'androidx.test.ext:junit:1.2.0-alpha01'
     implementation 'androidx.test.espresso:espresso-core:3.6.0-alpha01'
     implementation 'androidx.test.uiautomator:uiautomator:2.3.0-alpha04'
-    implementation 'androidx.benchmark:benchmark-macro-junit4:1.2.0'
+    implementation 'androidx.benchmark:benchmark-macro-junit4:1.2.1'
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:$coroutine_version"
 }

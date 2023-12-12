@@ -10,6 +10,7 @@ import android.location.Address
 import android.net.LinkProperties
 import android.net.wifi.WifiInfo
 import android.os.Build
+import android.provider.Settings
 import androidx.core.content.getSystemService
 import androidx.core.content.pm.PackageInfoCompat
 import com.getkeepsafe.relinker.ReLinker
@@ -22,6 +23,7 @@ import com.google.android.gms.security.ProviderInstaller
 import com.instacart.truetime.time.TrueTimeImpl
 import com.instacart.truetime.time.TrueTimeParameters
 import com.tencent.mmkv.MMKV
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
@@ -51,6 +53,14 @@ class GlobalApplication: Application() {
             })
             if (gaid.isNullOrBlank()) GlobalScope.launch(noExceptionContext) {
                 gaid = AdvertisingIdClient.getAdvertisingIdInfo(applicationContext).id
+            }.invokeOnCompletion { cancel ->
+                if (cancel !is CancellationException && gaid.isNullOrBlank()
+                    && com.huawei.hms.ads.identifier.AdvertisingIdClient.isAdvertisingIdAvailable(applicationContext))
+                    GlobalScope.launch(noExceptionContext) {
+                        gaid = com.huawei.hms.ads.identifier.AdvertisingIdClient.getAdvertisingIdInfo(applicationContext).id
+                }.invokeOnCompletion { if (it !is CancellationException && gaid.isNullOrBlank())
+                    emitException { gaid = Settings.Secure.getString(contentResolver, "advertising_id") }
+                }
             }
             // Always change, not usable
             if (appSetId.isNullOrBlank()) GlobalScope.launch(noExceptionContext) {

@@ -5,8 +5,8 @@ plugins {
     id 'kotlin-parcelize'
     id 'com.google.devtools.ksp'
     id 'project-report'
-    id 'dev.zacsweers.moshix' version '0.25.0'
-    id 'com.github.ben-manes.versions' version '0.49.0'
+    id 'dev.zacsweers.moshix' version '0.25.1'
+    id 'com.github.ben-manes.versions' version '0.50.0'
     id 'com.getkeepsafe.dexcount' version '4.0.0'
     id 'androidx.baselineprofile'
 }
@@ -67,7 +67,7 @@ android {
     }
 
     composeOptions {
-        kotlinCompilerExtensionVersion = '1.5.4'
+        kotlinCompilerExtensionVersion = '1.5.6'
     }
 
     packaging {
@@ -96,11 +96,12 @@ dependencies {
     baselineProfile project(':baselineprofile')
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs_nio:2.0.4'
     debugImplementation 'com.squareup.leakcanary:leakcanary-android:2.12'
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.21'
     implementation 'com.louiscad.splitties:splitties-appctx:3.0.0'
-    implementation 'androidx.core:core-ktx:1.13.0-alpha01'
+    implementation 'androidx.core:core-ktx:1.13.0-alpha02'
     implementation 'androidx.coordinatorlayout:coordinatorlayout:1.3.0-alpha02'
-    implementation 'androidx.fragment:fragment-ktx:1.7.0-alpha06'
-    implementation 'androidx.collection:collection:1.4.0-alpha02'
+    implementation 'androidx.fragment:fragment-ktx:1.7.0-alpha07'
+    implementation 'androidx.collection:collection:1.4.0-beta02'
     implementation 'androidx.customview:customview:1.2.0-alpha02'
     implementation 'androidx.profileinstaller:profileinstaller:1.3.1'
     implementation 'androidx.concurrent:concurrent-futures-ktx:1.2.0-alpha02'
@@ -113,17 +114,18 @@ dependencies {
     implementation "androidx.compose.foundation:foundation-layout:$compose_version"
     implementation "com.google.accompanist:accompanist-permissions:$accompanist_version"
     implementation 'androidx.exifinterface:exifinterface:1.3.6'
-    implementation 'androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0-beta01'
-    implementation 'androidx.activity:activity-compose:1.8.0'
-    implementation 'androidx.window:window:1.2.0-rc01'
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0-rc01'
+    implementation 'androidx.activity:activity-compose:1.9.0-alpha01'
+    implementation 'androidx.window:window:1.3.0-alpha01'
     implementation 'androidx.loader:loader:1.1.0'
     implementation 'androidx.annotation:annotation:1.7.0'
-    implementation 'androidx.annotation:annotation-experimental:1.4.0-dev01'
+    implementation 'androidx.annotation:annotation-experimental:1.4.0-alpha01'
     implementation 'com.squareup.okio:okio:3.6.0'
     implementation 'com.squareup.moshi:moshi:1.15.0'
-    implementation 'com.tencent:mmkv:1.3.1'
+    implementation 'com.tencent:mmkv:1.3.2'
     implementation 'com.getkeepsafe.relinker:relinker:1.4.5'
     //implementation 'com.guardsquare:proguard-retrace:7.3.1'
+    implementation 'com.huawei.hms:ads-identifier:3.4.67.300'
     implementation 'com.google.android.gms:play-services-basement:18.2.0'
     implementation 'com.google.android.gms:play-services-ads-identifier:18.0.1'
     implementation 'com.google.android.gms:play-services-location:21.0.1'
@@ -134,8 +136,8 @@ dependencies {
     implementation 'org.conscrypt:conscrypt-android:2.5.2'
     testImplementation 'junit:junit:4.13.2'
     implementation 'androidx.tracing:tracing-ktx:1.3.0-alpha02'
-    androidTestImplementation 'androidx.test.ext:junit:1.2.0-alpha01'
-    androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.0-alpha01'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.0-alpha02'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.0-alpha02'
     androidTestImplementation "androidx.compose.ui:ui-test-junit4:$compose_version"
     debugImplementation "androidx.compose.ui:ui-tooling:$compose_version"
     debugImplementation "androidx.compose.ui:ui-test-manifest:$compose_version"

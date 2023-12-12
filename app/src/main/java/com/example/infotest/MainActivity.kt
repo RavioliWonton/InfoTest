@@ -14,6 +14,7 @@ import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
+import android.os.CancellationSignal
 import android.os.Looper
 import android.provider.Settings
 import android.telephony.CellInfo
@@ -275,7 +276,7 @@ class MainActivity : ComponentActivity() {
                     startActionCompat(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
                 } else {
                     if (it.getProviders(true).contains(LocationManager.GPS_PROVIDER)) {
-                        LocationManagerCompat.getCurrentLocation(it, LocationManager.GPS_PROVIDER, null, Dispatchers.IO.asExecutor()) { gpsLastKnown ->
+                        LocationManagerCompat.getCurrentLocation(it, LocationManager.GPS_PROVIDER, null as CancellationSignal?, Dispatchers.IO.asExecutor()) { gpsLastKnown ->
                             if (gpsLastKnown != null && (GlobalApplication.gps?.time ?: -1L) < LocationCompat.getElapsedRealtimeNanos(gpsLastKnown)) {
                                 GlobalApplication.gps = GPS(gpsLastKnown.latitude.toString(), gpsLastKnown.longitude.toString(),
                                     LocationCompat.getElapsedRealtimeNanos(gpsLastKnown)
@@ -289,7 +290,7 @@ class MainActivity : ComponentActivity() {
                         }
                         LocationManagerCompat.requestLocationUpdates(it, LocationManager.GPS_PROVIDER, LocationRequestCompat.Builder(5000L).build(), Dispatchers.IO.asExecutor(), listener)
                     } else if (it.getProviders(true).contains(LocationManager.NETWORK_PROVIDER)) {
-                        LocationManagerCompat.getCurrentLocation(it, LocationManager.NETWORK_PROVIDER, null, Dispatchers.IO.asExecutor()) { networkLastKnown ->
+                        LocationManagerCompat.getCurrentLocation(it, LocationManager.NETWORK_PROVIDER, null as CancellationSignal?, Dispatchers.IO.asExecutor()) { networkLastKnown ->
                             if (networkLastKnown != null && (GlobalApplication.gps?.time ?: -1L) < LocationCompat.getElapsedRealtimeNanos(networkLastKnown)) {
                                 GlobalApplication.gps = GPS(networkLastKnown.latitude.toString(), networkLastKnown.longitude.toString(),
                                     LocationCompat.getElapsedRealtimeNanos(networkLastKnown)

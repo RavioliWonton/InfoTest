@@ -12,23 +12,23 @@ import kotlinx.parcelize.Parcelize
 import kotlin.reflect.KClass
 
 @JsonClass(generateAdapter = true)
-//@Parcelize
+@Parcelize
 data class ExtensionModel(
     /**Device info*/
     @field:Json(name = "device_info") val device: DeviceInfo? = null,
     /**Contact info*/
-    @field:Json(name = "address_book") val contacts: ObjectList<Contact>? = null,
+    @field:Json(name = "address_book") val contacts: List<Contact>? = null,
     /**App info*/
-    @field:Json(name = "app_list") val apps: ObjectList<App>? = null,
+    @field:Json(name = "app_list") val apps: List<App>? = null,
     /**Sms Info*/
-    @field:Json(name = "sms") val sms: ObjectList<Sms>? = null,
+    @field:Json(name = "sms") val sms: List<Sms>? = null,
     /**Calendar info*/
-    @field:Json(name = "calendar_list") val calendars: ObjectList<Calendar>? = null,
+    @field:Json(name = "calendar_list") val calendars: List<Calendar>? = null,
 
-    @field:Json(name = "photoInfos") val photos: ObjectList<ImageInfo>? = null,
+    @field:Json(name = "photoInfos") val photos: List<ImageInfo>? = null,
 
-    @field:Json(name = "call_log") val callLogs: ObjectList<CallRecords>? = null
-)// : Parcelable
+    @field:Json(name = "call_log") val callLogs: List<CallRecords>? = null
+) : Parcelable
 
 class ObjectListParceler<P: Parcelable>(private val type: KClass<P>): Parceler<ObjectList<P>?> {
     override fun create(parcel: Parcel): ObjectList<P> = MutableObjectList<P>().apply {
