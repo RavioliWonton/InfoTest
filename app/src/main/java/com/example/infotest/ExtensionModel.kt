@@ -10,6 +10,7 @@ import com.squareup.moshi.JsonClass
 import kotlinx.parcelize.Parceler
 import kotlinx.parcelize.Parcelize
 import kotlin.reflect.KClass
+import kotlin.reflect.safeCast
 
 @JsonClass(generateAdapter = true)
 @Parcelize
@@ -30,9 +31,10 @@ data class ExtensionModel(
     @field:Json(name = "call_log") val callLogs: List<CallRecords>? = null
 ) : Parcelable
 
+@Suppress("unused")
 class ObjectListParceler<P: Parcelable>(private val type: KClass<P>): Parceler<ObjectList<P>?> {
     override fun create(parcel: Parcel): ObjectList<P> = MutableObjectList<P>().apply {
-        ParcelCompat.readParcelableArray(parcel, ClassLoader.getSystemClassLoader(), type.javaObjectType)?.let { addAll(it) }
+        ParcelCompat.readParcelableArrayTyped(parcel, ClassLoader.getSystemClassLoader(), type.javaObjectType)?.mapNotNull { type.safeCast(it) }?.let { addAll(it) }
     }
     override fun ObjectList<P>?.write(parcel: Parcel, flags: Int) {
         parcel.writeParcelableArray(arrayListOf<P>().apply {

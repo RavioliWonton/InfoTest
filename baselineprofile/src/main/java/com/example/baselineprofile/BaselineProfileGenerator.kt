@@ -1,8 +1,12 @@
 package com.example.baselineprofile
 
+import android.Manifest
+import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.benchmark.macro.junit4.BaselineProfileRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
+import androidx.test.rule.GrantPermissionRule
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -30,7 +34,29 @@ import org.junit.runner.RunWith
 @LargeTest
 class BaselineProfileGenerator {
 
-    @get:Rule
+    private val permissionArray = mutableListOf(
+        Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE,
+        Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION,
+        Manifest.permission.READ_CONTACTS, Manifest.permission.READ_SMS, Manifest.permission.READ_CALL_LOG,
+        Manifest.permission.READ_PHONE_STATE, Manifest.permission.READ_CALENDAR, Manifest.permission.GET_ACCOUNTS
+    )
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private val qPermissionArray = permissionArray.plusElement(Manifest.permission.ACCESS_MEDIA_LOCATION)
+        .minusElement(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    private val tPermissionArray = qPermissionArray.plus(arrayOf(
+        Manifest.permission.READ_MEDIA_AUDIO,
+        Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO,
+        Manifest.permission.POST_NOTIFICATIONS)).minusElement(Manifest.permission.READ_EXTERNAL_STORAGE)
+
+    @get:Rule(order = 0)
+    val permission: GrantPermissionRule = GrantPermissionRule.grant(
+        *(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) tPermissionArray
+        else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) qPermissionArray
+        else permissionArray).toTypedArray()
+    )
+
+    @get:Rule(order = 1)
     val rule = BaselineProfileRule()
 
     @Test

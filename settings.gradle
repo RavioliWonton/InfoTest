@@ -4,6 +4,7 @@ pluginManagement {
         google()
         mavenCentral()
         maven { url 'https://oss.sonatype.org/content/repositories/snapshots' }
+        //maven { url 'https://androidx.dev/snapshots/builds/11338416/artifacts/repository' }
     }
 }
 dependencyResolutionManagement {

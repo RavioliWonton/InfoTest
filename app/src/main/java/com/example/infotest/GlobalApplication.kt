@@ -1,18 +1,18 @@
 package com.example.infotest
 
 import android.app.Application
-import android.app.GrammaticalInflectionManager
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
-import android.content.res.Configuration
 import android.location.Address
 import android.net.LinkProperties
 import android.net.wifi.WifiInfo
-import android.os.Build
-import android.provider.Settings
-import androidx.core.content.getSystemService
+import android.os.StrictMode
+import androidx.core.app.GrammaticalInflectionManagerCompat
+import androidx.core.content.ContextCompat
 import androidx.core.content.pm.PackageInfoCompat
+import androidx.privacysandbox.ads.adservices.adid.AdIdManager
+import androidx.privacysandbox.ads.adservices.appsetid.AppSetIdManager
 import com.getkeepsafe.relinker.ReLinker
 import com.google.android.gms.ads.identifier.AdvertisingIdClient
 import com.google.android.gms.appset.AppSet
@@ -36,55 +36,46 @@ class GlobalApplication: Application() {
 
     @DelicateCoroutinesApi
     override fun onCreate() {
+        if (isDebug) {
+            StrictMode.setThreadPolicy(StrictMode.ThreadPolicy.Builder().detectAll().permitDiskReads().permitDiskWrites().penaltyLog().build())
+            StrictMode.setVmPolicy(StrictMode.VmPolicy.Builder().detectAll().penaltyLog().build())
+        }
         super.onCreate()
-        MMKV.initialize(applicationContext, filesDir.absolutePath + Constants.mmkvDefaultRoute) {
+        MMKV.initialize(applicationContext, ContextCompat.getNoBackupFilesDir(this)?.absolutePath + Constants.mmkvDefaultRoute) {
             ReLinker.recursively().loadLibrary(applicationContext, it)
         }
         // Light is enough for checking for gms availability according to so/57902978
-        if (GoogleApiAvailabilityLight.getInstance()
-                .isGooglePlayServicesAvailable(this) == ConnectionResult.SUCCESS) {
+        if (GoogleApiAvailabilityLight.getInstance().isGooglePlayServicesAvailable(this) == ConnectionResult.SUCCESS) {
             ProviderInstaller.installIfNeededAsync(this, object : ProviderInstaller.ProviderInstallListener {
                 override fun onProviderInstallFailed(errorCode: Int, recoveryIntent: Intent?) {
-                    GoogleApiAvailability.getInstance().showErrorNotification(this@GlobalApplication, errorCode)
+                    if (GoogleApiAvailabilityLight.getInstance().isUserResolvableError(errorCode))
+                        GoogleApiAvailability.getInstance().showErrorNotification(this@GlobalApplication, errorCode)
                     if (Conscrypt.isAvailable()) Security.insertProviderAt(Conscrypt.newProviderBuilder().provideTrustManager(true).build(), 0)
                 }
 
                 override fun onProviderInstalled() = Unit
             })
             if (gaid.isNullOrBlank()) GlobalScope.launch(noExceptionContext) {
-                gaid = AdvertisingIdClient.getAdvertisingIdInfo(applicationContext).id
-            }.invokeOnCompletion { cancel ->
-                if (cancel !is CancellationException && gaid.isNullOrBlank()
-                    && com.huawei.hms.ads.identifier.AdvertisingIdClient.isAdvertisingIdAvailable(applicationContext))
-                    GlobalScope.launch(noExceptionContext) {
-                        gaid = com.huawei.hms.ads.identifier.AdvertisingIdClient.getAdvertisingIdInfo(applicationContext).id
-                }.invokeOnCompletion { if (it !is CancellationException && gaid.isNullOrBlank())
-                    emitException { gaid = Settings.Secure.getString(contentResolver, "advertising_id") }
-                }
-            }
+                gaid = AdIdManager.obtain(applicationContext)?.getAdId()?.adId ?: AdvertisingIdClient.getAdvertisingIdInfo(applicationContext).id
+            }.invokeOnCompletion { if (it !is CancellationException) getGAIDFallback() }
             // Always change, not usable
             if (appSetId.isNullOrBlank()) GlobalScope.launch(noExceptionContext) {
-                appSetId = AppSet.getClient(applicationContext).appSetIdInfo.await().id
+                appSetId = AppSetIdManager.obtain(applicationContext)?.getAppSetId()?.id ?: AppSet.getClient(applicationContext).appSetIdInfo.await().id
             }
-        } else if (Conscrypt.isAvailable())
-            Security.insertProviderAt(Conscrypt.newProviderBuilder().provideTrustManager(true).build(), 0)
+        } else {
+            getGAIDFallback()
+            if (Conscrypt.isAvailable()) Security.insertProviderAt(Conscrypt.newProviderBuilder().provideTrustManager(true).build(), 0)
+        }
         if (isNetworkAvailable()) trueTime.sync()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
-            getSystemService<GrammaticalInflectionManager>()?.setRequestedApplicationGrammaticalGender(Configuration.GRAMMATICAL_GENDER_NEUTRAL)
+        GrammaticalInflectionManagerCompat.setRequestedApplicationGrammaticalGender(this, GrammaticalInflectionManagerCompat.GRAMMATICAL_GENDER_NEUTRAL)
     }
 
     companion object {
         private val mmkv by lazy { MMKV.defaultMMKV(MMKV.MULTI_PROCESS_MODE, null) }
-        val appVersion by lazy { PackageInfoCompat.getLongVersionCode(
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-                appCtx.packageManager.getPackageInfo(appCtx.packageName, PackageManager.PackageInfoFlags
-                    .of(PackageManager.GET_CONFIGURATIONS.toLong()))
-            else appCtx.packageManager.getPackageInfo(
-                appCtx.packageName, PackageManager.GET_CONFIGURATIONS)) }
-        val appVersionName: String by lazy { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-            appCtx.packageManager.getPackageInfo(appCtx.packageName,
-                PackageManager.PackageInfoFlags.of(0L)).versionName
-            else appCtx.packageManager.getPackageInfo(appCtx.packageName, 0).versionName }
+        val appVersion by lazy { appCtx.packageManager.getPackageInfoCompat(appCtx.packageName,
+            PackageManager.GET_CONFIGURATIONS)?.let { PackageInfoCompat.getLongVersionCode(it) } ?: 0L
+        }
+        val appVersionName: String by lazy { appCtx.packageManager.getPackageInfoCompat(appCtx.packageName)?.versionName.orEmpty() }
         val isDebug by lazy { appCtx.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0 }
         var lastLoginTime: Long
             get() = mmkv.decodeLong(Constants.lastLoginTag)
