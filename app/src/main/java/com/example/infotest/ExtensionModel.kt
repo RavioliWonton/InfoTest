@@ -596,7 +596,7 @@ data class CallRecords(
     val duration: Long,
     val features: Int,
     val type: Int,
-    val caller: String,
+    var caller: String? = null,
     val countryIso: String,
     val geocodedLocation: String,
     var latitude: Double? = null,

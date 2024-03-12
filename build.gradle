@@ -1,26 +1,29 @@
 buildscript {
     ext {
-        compose_version = '1.7.0-alpha01'
-        compose_material3_version = '1.2.0-rc01'
-        accompanist_version = '0.34.0'
-        benchmark_version = '1.2.3'
+        compose_version = '1.7.0-alpha04'
+        compose_material3_version = '1.3.0-alpha02'
+        accompanist_version = '0.35.0-alpha'
+        benchmark_version = '1.3.0-alpha01'
         kotlin_version = '1.9.22'
-        androidx_annotation_version = '1.7.1'
+        androidx_annotation_version = '1.8.0-alpha01'
         androidx_annotation_experimental_version = '1.4.0'
         androidx_concurrent_future_version = '1.2.0-alpha02'
-        lifecycle_version = '2.8.0-alpha01'
-        coroutine_version = '1.8.0-RC2'
+        lifecycle_version = '2.8.0-alpha02'
+        coroutine_version = '1.8.0'
+        okio_version = '3.8.0'
         tracing_version = '1.3.0-alpha02'
+        test_junit_version = '1.2.0-alpha03'
+        test_espresso_version = '3.6.0-alpha03'
     }
 }
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
 plugins {
-    id 'com.android.application' version '8.4.0-alpha06' apply false
-    id 'com.android.library' version '8.4.0-alpha06' apply false
+    id 'com.android.application' version '8.4.0-alpha13' apply false
+    id 'com.android.library' version '8.4.0-alpha13' apply false
     id 'org.jetbrains.kotlin.android' version "$kotlin_version" apply false
-    id 'org.gradle.android.cache-fix' version '3.0' apply false
+    id 'org.gradle.android.cache-fix' version '3.0.1' apply false
     id 'com.google.devtools.ksp' version '1.9.22-1.0.16' apply false // 1.0.17 not compatible
-    id 'com.android.test' version '8.4.0-alpha06' apply false
+    id 'com.android.test' version '8.4.0-alpha13' apply false
     id 'androidx.baselineprofile' version "$benchmark_version" apply false
 }
 

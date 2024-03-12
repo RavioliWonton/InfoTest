@@ -13,6 +13,11 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.pm.PackageInfoCompat
 import androidx.privacysandbox.ads.adservices.adid.AdIdManager
 import androidx.privacysandbox.ads.adservices.appsetid.AppSetIdManager
+import com.example.infotest.utils.Constants
+import com.example.infotest.utils.getGAIDFallback
+import com.example.infotest.utils.getPackageInfoCompat
+import com.example.infotest.utils.isNetworkAvailable
+import com.example.infotest.utils.noExceptionContext
 import com.getkeepsafe.relinker.ReLinker
 import com.google.android.gms.ads.identifier.AdvertisingIdClient
 import com.google.android.gms.appset.AppSet
@@ -78,29 +83,29 @@ class GlobalApplication: Application() {
         val appVersionName: String by lazy { appCtx.packageManager.getPackageInfoCompat(appCtx.packageName)?.versionName.orEmpty() }
         val isDebug by lazy { appCtx.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0 }
         var lastLoginTime: Long
-            get() = mmkv.decodeLong(Constants.lastLoginTag)
-            set(value) { mmkv.encode(Constants.lastLoginTag, value) }
+            get() = mmkv.decodeLong(Constants.LASTLOGINTAG)
+            set(value) { mmkv.encode(Constants.LASTLOGINTAG, value) }
         var gaid: String?
-            get() = mmkv.decodeString(Constants.gaidTag)
-            set(value) { mmkv.encode(Constants.gaidTag, value) }
+            get() = mmkv.decodeString(Constants.GAIDTAG)
+            set(value) { mmkv.encode(Constants.GAIDTAG, value) }
         var appSetId: String?
-            get() = mmkv.decodeString(Constants.appSetIdTag)
-            set(value) { mmkv.encode(Constants.appSetIdTag, value) }
+            get() = mmkv.decodeString(Constants.APPSETIDTAG)
+            set(value) { mmkv.encode(Constants.APPSETIDTAG, value) }
         var gps: GPS?
-            get() = mmkv.decodeParcelable(Constants.gpsTag, GPS::class.java)
-            set(value) { mmkv.encode(Constants.gpsTag, value) }
+            get() = mmkv.decodeParcelable(Constants.GPSTAG, GPS::class.java)
+            set(value) { mmkv.encode(Constants.GPSTAG, value) }
         var dbm: Int
-            get() = mmkv.decodeInt(Constants.dbmTag, -1)
-            set(value) { mmkv.encode(Constants.dbmTag, value) }
+            get() = mmkv.decodeInt(Constants.DBMTAG, -1)
+            set(value) { mmkv.encode(Constants.DBMTAG, value) }
         var currentWifiCapabilities: WifiInfo?
-            get() = mmkv.decodeParcelable(Constants.wifiCapabilitiesTag, WifiInfo::class.java)
-            set(value) { mmkv.encode(Constants.wifiCapabilitiesTag, value) }
+            get() = mmkv.decodeParcelable(Constants.WIFICAPABILITIESTAG, WifiInfo::class.java)
+            set(value) { mmkv.encode(Constants.WIFICAPABILITIESTAG, value) }
         var currentWifiLinkProperties: LinkProperties?
-            get() = mmkv.decodeParcelable(Constants.wifiPropertiesTag, LinkProperties::class.java)
-            set(value) { mmkv.encode(Constants.wifiPropertiesTag, value) }
+            get() = mmkv.decodeParcelable(Constants.WIFIPROPERTIESTAG, LinkProperties::class.java)
+            set(value) { mmkv.encode(Constants.WIFIPROPERTIESTAG, value) }
         var address: Address?
-            get() = mmkv.decodeParcelable(Constants.addressTag, Address::class.java)
-            set(value) { mmkv.encode(Constants.addressTag, value) }
+            get() = mmkv.decodeParcelable(Constants.ADDRESSTAG, Address::class.java)
+            set(value) { mmkv.encode(Constants.ADDRESSTAG, value) }
         val trueTime by lazy { TrueTimeImpl(
             params = TrueTimeParameters.Builder()
                 .returnSafelyWhenUninitialized(true)
