@@ -24,6 +24,7 @@ import com.google.android.gms.appset.AppSet
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.common.GoogleApiAvailabilityLight
+import com.google.android.gms.net.CronetProviderInstaller
 import com.google.android.gms.security.ProviderInstaller
 import com.instacart.truetime.time.TrueTimeImpl
 import com.instacart.truetime.time.TrueTimeParameters
@@ -67,6 +68,7 @@ class GlobalApplication: Application() {
             if (appSetId.isNullOrBlank()) GlobalScope.launch(noExceptionContext) {
                 appSetId = AppSetIdManager.obtain(applicationContext)?.getAppSetId()?.id ?: AppSet.getClient(applicationContext).appSetIdInfo.await().id
             }
+            CronetProviderInstaller.installProvider(this)
         } else {
             getGAIDFallback()
             if (Conscrypt.isAvailable()) Security.insertProviderAt(Conscrypt.newProviderBuilder().provideTrustManager(true).build(), 0)

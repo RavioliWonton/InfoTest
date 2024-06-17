@@ -85,7 +85,7 @@ class MainActivity : ComponentActivity() {
                     }).withNtpHost("ntp2.nim.ac.cn").initialize()
             }*/
         setContent {
-            enableEdgeToEdge(statusBarStyle = SystemBarStyle.auto(lightScrim = Color.White.toArgb(), darkScrim = Color.Black.toArgb()))
+            enableEdgeToEdge()
 
             InfoTestTheme {
                 // A surface container using the 'background' color from the theme

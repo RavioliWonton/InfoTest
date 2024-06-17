@@ -14,13 +14,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.core.content.PermissionChecker
 import androidx.core.content.getSystemService
 import androidx.core.location.LocationManagerCompat
 import androidx.core.location.LocationRequestCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.ResolvableApiException
@@ -43,7 +43,7 @@ fun ComponentActivity.getLocationAsync(isAccuracy: Boolean = false, isUsingGoogl
 @Composable
 fun GetLocationAsyncComposable(isAccuracy: Boolean = false, isUsingGoogleService: Boolean = true, callback: (Location) -> Unit) {
     val context = LocalContext.current
-    val activity = context.unwrapUntil { takeIf { it is Activity } as Activity }
+    val activity = context.findActivity()
     if (PermissionChecker.checkSelfPermission(context, if (isAccuracy) Manifest.permission.ACCESS_FINE_LOCATION
         else Manifest.permission.ACCESS_COARSE_LOCATION) != PermissionChecker.PERMISSION_GRANTED) return
     val lifecycleOwner = rememberUpdatedState(newValue = LocalLifecycleOwner.current)

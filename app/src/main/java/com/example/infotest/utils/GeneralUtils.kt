@@ -58,7 +58,7 @@ object Constants {
     val mmkvDefaultRoute = FileSystems.getDefault().separator + "mmkv"
 }
 
-val ApplicationInfo.minSdkVersionCompat
+val ApplicationInfo.minSdkVersionCompat: Int
     get() = if (atLeastN) minSdkVersion else {
         { appCtx.assets.use { assetManager ->
             assetManager.openXmlResourceParser(assetManager.javaClass.getAccessibleMethod("addAssetPath", String.Companion::class.java)
@@ -81,7 +81,7 @@ val ApplicationInfo.minSdkVersionCompat
 @CheckResult
 @ChecksSdkIntAtLeast
 fun buildBetween(@IntRange(Build.VERSION_CODES.BASE.toLong(), Build.VERSION_CODES.CUR_DEVELOPMENT.toLong()) floor: Int = appCtx.applicationInfo.minSdkVersionCompat,
-                 @IntRange(Build.VERSION_CODES.BASE.toLong(), Build.VERSION_CODES.CUR_DEVELOPMENT.toLong()) tail: Int = Build.VERSION_CODES.CUR_DEVELOPMENT) =
+                 @IntRange(Build.VERSION_CODES.BASE.toLong(), Build.VERSION_CODES.CUR_DEVELOPMENT.toLong()) tail: Int = Build.VERSION_CODES.CUR_DEVELOPMENT): Boolean =
     Build.VERSION.SDK_INT in floor..tail
 @ChecksSdkIntAtLeast(Build.VERSION_CODES.LOLLIPOP_MR1)
 val atLeastLM = buildBetween(Build.VERSION_CODES.LOLLIPOP_MR1)
@@ -103,6 +103,7 @@ val atLeastS = buildBetween(Build.VERSION_CODES.S)
 val atLeastT = buildBetween(Build.VERSION_CODES.TIRAMISU)
 @ChecksSdkIntAtLeast(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
 val atLeastU = buildBetween(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+// Cannot
 @CheckResult
 @ChecksSdkIntAtLeast
 @RequiresApi(Build.VERSION_CODES.R)
@@ -111,7 +112,7 @@ fun atLeastExtension(@IntRange(Build.VERSION_CODES.R.toLong(), SdkExtensions.AD_
 
 infix fun <T> Boolean.then(param: T): T? = if (this) param else null
 fun Boolean?.toInt(): Int? = (this != null).then((this == true).then(1) ?: 0)
-fun Int?.toBoolean(): Boolean? = (this != null).then((this!! > 0).then(true) ?: false)
+fun Int?.toBoolean(): Boolean? = (this != null).then((this!! > 0).then(true) == true)
 
 @OptIn(ExperimentalContracts::class)
 inline fun emitException(vararg neededThrowExceptions: Class<out Exception> = emptyArray(), block: () -> Unit) {
@@ -283,6 +284,10 @@ tailrec fun <T: Context> Context.unwrapUntil(condition: Context.() -> T?): T? = 
     this is ContextWrapper -> baseContext.unwrapUntil(condition)
     else -> null
 }
+@SafeVarargs
+fun Context.unwrapUntilAnyOrNull(vararg type: Class<out Context>) =
+    unwrapUntil { if (type.any { it.isInstance(this) }) this@unwrapUntilAnyOrNull else null }
+fun Context.findActivity() = unwrapUntil { takeIf { it is Activity } as Activity }
 
 /*fun String?.retrace(mappingFile: File, isVerbose: Boolean = true) = run {
     Writer.nullWriter().buffered().use {

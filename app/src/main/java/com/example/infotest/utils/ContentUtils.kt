@@ -97,7 +97,7 @@ fun Cursor?.getSingleBlob(column: String) = if (this?.moveToFirst() == true)
 
 @RequiresPermission(anyOf = [Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED, Manifest.permission.ACCESS_MEDIA_LOCATION], conditional = true)
 fun MutableObjectList<ImageInfo>.processCursor(cursor: Cursor?, contentResolver: ContentResolver, originalUri: Uri): Unit = emitException {
-    fun Cursor.toInput() =  { getStringOrNull(getColumnIndex(if (atLeastQ) MediaStore.Images.ImageColumns._ID else MediaStore.Images.ImageColumns.DATA))?.let {
+    fun Cursor.toInput() = { getStringOrNull(getColumnIndex(if (atLeastQ) MediaStore.Images.ImageColumns._ID else MediaStore.Images.ImageColumns.DATA))?.let {
         if (atLeastQ) contentResolver.openInputStream(MediaStore.setRequireOriginal(ContentUris.withAppendedId(originalUri, it.toLong())))
         else Path(it).inputStream()
     } }.catchReturnNull()

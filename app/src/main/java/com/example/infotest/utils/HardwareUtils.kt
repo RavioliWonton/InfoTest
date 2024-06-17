@@ -36,8 +36,8 @@ fun Activity.getHardwareInfo(): Hardware {
     val metric = WindowMetricsCalculator.getOrCreate().computeCurrentWindowMetrics(this)
     val currentPoint = metric.bounds
     val insets = (ViewCompat.getRootWindowInsets(window.decorView) ?:
-    if (atLeastR) metric.getWindowInsets() else WindowInsetsCompat.CONSUMED)
-        .getInsets(WindowInsetsCompat.Type.systemBars())
+        if (atLeastR) metric.getWindowInsets() else WindowInsetsCompat.CONSUMED)
+            .getInsets(WindowInsetsCompat.Type.systemBars())
     return Hardware(
         board = Build.BOARD.takeIf { it != Build.UNKNOWN }.orEmpty(),
         brand = Build.BRAND.takeIf { it != Build.UNKNOWN }.orEmpty(),
@@ -62,7 +62,7 @@ fun Activity.getHardwareInfo(): Hardware {
 
 private fun Context.isUiContextCompat() = {
     if (atLeastS) isUiContext
-    else unwrapUntil { if (listOf(Activity::class.java, InputMethodService::class.java).any { it.isInstance(this) }) this else null } != null
+    else unwrapUntilAnyOrNull(Activity::class.java, InputMethodService::class.java) != null
 }.catchFalse()
 
 private fun Context.getPhysicalSize() = {
@@ -123,7 +123,8 @@ fun Context.getIsSimulator() = {
                 || getSystemProperty("ro.kernel.qemu").equals("1") }.catchFalse()
             || arrayOf("000000000000000", "e21833235b6eef10", "012345678912345").any { it.equals(getDeviceIdCompat(), true) }
             || arrayOf("+15555215554", "+15555215556", "+15555215558", "+15555215560", "+15555215562", "+15555215564", "+15555215566", "+15555215568",
-                "+15555215570", "+15555215572", "+15555215574", "+15555215576", "+15555215578", "+15555215580", "+15555215582", "+15555215584").map { PhoneNumberUtils.normalizeNumber(it) }.any {
+                "+15555215570", "+15555215572", "+15555215574", "+15555215576", "+15555215578", "+15555215580", "+15555215582", "+15555215584")
+                .map { PhoneNumberUtils.normalizeNumber(it) }.any {
                     { if (atLeastS) PhoneNumberUtils.areSamePhoneNumber(it, PhoneNumberUtils.normalizeNumber(getPhoneNumber()), getSystemDefaultLocale().country)
                     else PhoneNumberUtils.compare(it, PhoneNumberUtils.normalizeNumber(getPhoneNumber())) }.catchFalse()
                 }

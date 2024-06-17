@@ -14,6 +14,8 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import com.example.infotest.utils.findActivity
+import com.example.infotest.utils.unwrapUntil
 
 private val DarkColorScheme = darkColorScheme(
     primary = Purple80,
@@ -55,8 +57,10 @@ fun InfoTestTheme(
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
-            (view.context as Activity).window.statusBarColor = colorScheme.primary.toArgb()
-            WindowCompat.getInsetsController((view.context as Activity).window, view).isAppearanceLightStatusBars = darkTheme
+            view.context.findActivity()?.let {
+                it.window.statusBarColor = colorScheme.primary.toArgb()
+                WindowCompat.getInsetsController(it.window, view).isAppearanceLightStatusBars = darkTheme
+            }
         }
     }
 

@@ -9,7 +9,7 @@ plugins {
 
 android {
     namespace 'com.example.baselineprofile'
-    compileSdk 34
+    compileSdkPreview "VanillaIceCream"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -55,7 +55,7 @@ dependencies {
     implementation "androidx.test.ext:junit:$test_junit_version"
     implementation "androidx.test.espresso:espresso-core:$test_espresso_version"
     implementation 'androidx.test.uiautomator:uiautomator:2.3.0'
-    implementation 'androidx.test:rules:1.6.0-alpha03'
+    implementation 'androidx.test:rules:1.6.0-beta01'
     implementation "androidx.benchmark:benchmark-macro-junit4:$benchmark_version"
     implementation "com.squareup.okio:okio:$okio_version"
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:$coroutine_version"

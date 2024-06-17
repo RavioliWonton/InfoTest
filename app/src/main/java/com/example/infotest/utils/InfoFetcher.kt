@@ -45,6 +45,7 @@ import androidx.core.telephony.SubscriptionManagerCompat
 import androidx.core.telephony.TelephonyManagerCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.window.core.ExperimentalWindowApi
 import androidx.window.layout.WindowMetricsCalculator
 import com.example.infotest.App
@@ -65,7 +66,9 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.future.asCompletableFuture
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import splitties.init.appCtx
@@ -114,7 +117,7 @@ suspend fun ComponentActivity.createExtensionModel() = ExtensionModel(
     Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED, Manifest.permission.READ_PHONE_STATE,
     Manifest.permission.ACCESS_NETWORK_STATE, Manifest.permission.ACCESS_WIFI_STATE,
     "android.permission.READ_PRIVILEGED_PHONE_STATE"], conditional = true)
-private fun Activity.getDeviceInfo(): DeviceInfo {
+private fun ComponentActivity.getDeviceInfo(): DeviceInfo {
     val wifiManager = applicationContext.getSystemService<WifiManager>()
     val telephonyManager = getSystemService<TelephonyManager>()
     val connectivityManager = applicationContext.getSystemService<ConnectivityManager>()
@@ -214,8 +217,11 @@ private fun Activity.getDeviceInfo(): DeviceInfo {
         deviceInfo = Build.MODEL.takeIf { it != Build.UNKNOWN }.orEmpty(),
         osType = "android", osVersion = Build.VERSION.RELEASE.takeIf { it != Build.UNKNOWN }.orEmpty(),
         ip = {
-            Scanner(URL("https://api.ipify.org").openStream(), StandardCharsets.UTF_8.name())
-                .useDelimiter("\\A").use { it.hasNext().then(it.next()) }
+            lifecycleScope.async(noExceptionContext) {
+                "https://api.ipify.org".getResponseString(method = RequestMethod.GET)
+            }.asCompletableFuture().get()
+            /*Scanner(URL("https://api.ipify.org").openStream(), StandardCharsets.UTF_8.name())
+                .useDelimiter("\\A").use { it.hasNext().then(it.next()) }*/
         }.catchEmpty(),
         memory = {
             ActivityManager.MemoryInfo().apply {

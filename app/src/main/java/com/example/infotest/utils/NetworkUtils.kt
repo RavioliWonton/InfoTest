@@ -107,7 +107,7 @@ fun RegisterWifiCallback(onCapabilitiesChanged: (network: android.net.Network, n
 }
 @RequiresPermission(Manifest.permission.ACCESS_NETWORK_STATE)
 private fun processWifiCallBackObserver(manager: ConnectivityManager?, onCapabilitiesChanged: (network: android.net.Network, networkCapabilities: NetworkCapabilities) -> Unit,
-                                        onLinkPropertiesChanged: (network: android.net.Network, linkProperties: LinkProperties) -> Unit) = LifecycleEventObserver { source, event ->
+                                        onLinkPropertiesChanged: (network: android.net.Network, linkProperties: LinkProperties) -> Unit) = LifecycleEventObserver { _, event ->
     val callback = if (atLeastS) object : ConnectivityManager.NetworkCallback(FLAG_INCLUDE_LOCATION_INFO) {
         override fun onCapabilitiesChanged(network: android.net.Network, networkCapabilities: NetworkCapabilities) {
             super.onCapabilitiesChanged(network, networkCapabilities)
