@@ -8,9 +8,7 @@
     <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-    <!-- 用于获取wifi的获取权限，wifi信息会用来进行网络定位 -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
-    <!-- 用于申请调用A-GPS模块 -->
     <uses-permission android:name="android.permission.ACCESS_LOCATION_EXTRA_COMMANDS" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
@@ -31,6 +29,9 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.GET_ACCOUNTS" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="com.asus.msa.SupplementaryDID.ACCESS" />
+    <uses-permission android:name="freemme.permission.msa" />
     <!--<uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />-->
 
@@ -43,6 +44,30 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
+        <!-- oaid requirement, if you use query all package ability above you could ignore these -->
+        <!-- google -->
+        <package android:name="com.google.android.gms" />
+        <package android:name="com.android.vending" />
+        <!-- freeme -->
+        <package android:name="com.android.creator" />
+        <!-- zte -->
+        <package android:name="com.mdid.msa" />
+        <!-- samsung -->
+        <package android:name="com.samsung.android.deviceidservice" />
+        <!-- coolpad -->
+        <package android:name="com.coolpad.deviceidsupport" />
+        <!-- oppo -->
+        <package android:name="com.heytap.openid" />
+        <!-- huawei -->
+        <package android:name="com.huawei.hwid" />
+        <package android:name="com.huawei.hwid.tv" />
+        <package android:name="com.huawei.hms" />
+        <!-- asus -->
+        <package android:name="com.asus.msa.SupplementaryDID" />
+        <!-- lenovo -->
+        <package android:name="com.zui.deviceidservice" />
+        <!-- 360OS -->
+        <package android:name="com.qiku.id" />
     </queries>
 
     <application
@@ -55,6 +80,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:enableOnBackInvokedCallback="true"
+        tools:replace="android:allowBackup"
         android:theme="@style/Theme.InfoTest"
         tools:targetApi="tiramisu">
         <activity

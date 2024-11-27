@@ -25,6 +25,8 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import kotlin.io.path.absolutePathString
 import kotlin.io.path.fileStore
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.toJavaUuid
 
 fun Context.getStorageInfo(): Storage {
     val internalStatfs = { StatFs(Environment.getDataDirectory().absolutePath) }.catchReturnNull()
@@ -111,20 +113,21 @@ fun Context.getSDCardPair(): Pair<String, String> = {
     }
 }.catchReturn("-1" to "-1")
 
+@OptIn(ExperimentalUuidApi::class)
 @WorkerThread
 @SuppressLint("DiscouragedPrivateApi")
 fun Context.getStoragePair(): Pair<Long, Long> {
-    val storageManager = getSystemService<StorageManager>()
     var total = 0L
     var free = 0L
     try {
+        val storageManager = getSystemService<StorageManager>()
         if (atLeastN) {
             val validVolumes = storageManager?.storageVolumes
                 ?.filter { it.state in objectListOf(Environment.MEDIA_MOUNTED, Environment.MEDIA_MOUNTED_READ_ONLY) }
             if (atLeastO)
                 validVolumes?.mapNotNull {
                     if (atLeastS) it.storageUuid else {
-                        { it.directoryCompat?.toFile()?.let(storageManager::getUuidForPath) }.catchReturnNull(it.uuid.toUUIDorNull())
+                        { it.directoryCompat?.toFile()?.let(storageManager::getUuidForPath) }.catchReturnNull(it.uuid.toUUIDorNull()?.toJavaUuid())
                     }
                 }.takeIf { it?.isNotEmpty() == true }?.forEach {
                     total += getSystemService<StorageStatsManager>()?.getTotalBytes(it) ?: 0L
@@ -139,7 +142,7 @@ fun Context.getStoragePair(): Pair<Long, Long> {
             }
         } else {
             val getPathMethod = getClassOrNull("android.os.storage.StorageVolume")?.getDeclaredAccessibleMethod("getPath")
-            StorageManager::class.java.getDeclaredAccessibleMethod("getVolumeList")?.invoke(storageManager)?.let {
+            StorageManager::class.java.getDeclaredAccessibleMethod("getVolumeList")?.invoke(storageManager, emptyArray<Any>())?.let {
                 for (i in 0 until java.lang.reflect.Array.getLength(it)) {
                     val volumeFile = (getPathMethod?.invoke(java.lang.reflect.Array.get(it, i), emptyArray<Any>()) as String).toPath().toNioPath()
                     total += volumeFile.fileStore().totalSpace

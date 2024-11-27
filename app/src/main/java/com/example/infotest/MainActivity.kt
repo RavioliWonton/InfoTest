@@ -6,7 +6,6 @@ import android.net.wifi.WifiInfo
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.annotation.RequiresApi
@@ -25,8 +24,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.style.TextAlign
 import androidx.core.app.ActivityCompat
 import androidx.core.location.LocationCompat
@@ -47,6 +44,7 @@ import com.example.infotest.utils.saveFileToDownload
 import com.example.infotest.utils.toJson
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
+import com.tencent.map.geolocation.TencentLocationManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.seconds
@@ -104,6 +102,7 @@ class MainActivity : ComponentActivity() {
                                     ?.let { ActivityCompat.finishAffinity(this) }
                             }
                         if (permission.allPermissionsGranted) {
+                            TencentLocationManager.setUserAgreePrivacy(true)
                             StartWifiScan()
                             RegisterWifiCallback(onCapabilitiesChanged = { _, networkCapabilities ->
                                 if (atLeastQ && networkCapabilities.transportInfo is WifiInfo)
@@ -111,6 +110,7 @@ class MainActivity : ComponentActivity() {
                             }, onLinkPropertiesChanged = { _, linkProperties -> GlobalApplication.currentWifiLinkProperties = linkProperties })
                             GetCellInfoComposeAsync { GlobalApplication.dbm = it.lastDbmCompat }
                             GetLocationAsyncComposable { location ->
+                                @Suppress("DEPRECATION")
                                 GlobalApplication.gps = GPS(location.latitude.toString(), location.longitude.toString(),
                                     LocationCompat.getElapsedRealtimeNanos(location))
                                 if (atLeastT && Geocoder.isPresent()) emitException {

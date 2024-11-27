@@ -10,9 +10,11 @@ import android.content.res.Resources
 import android.database.Cursor
 import android.graphics.BitmapFactory
 import android.graphics.Rect
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
 import androidx.annotation.RequiresPermission
 import androidx.collection.MutableObjectList
@@ -30,12 +32,13 @@ import androidx.core.os.ConfigurationCompat
 import androidx.core.os.LocaleListCompat
 import androidx.exifinterface.media.ExifInterface
 import com.example.infotest.ImageInfo
+import us.fatehi.pointlocation6709.Angle
+import us.fatehi.pointlocation6709.parse.PointLocationParser
 import java.time.LocalDateTime
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.io.path.Path
-import kotlin.io.path.inputStream
 
 @RequiresPermission(anyOf = [Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED, Manifest.permission.READ_EXTERNAL_STORAGE], conditional = true)
 val imageInternalUri: Uri = if (atLeastQ) MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_INTERNAL) else MediaStore.Images.Media.INTERNAL_CONTENT_URI
@@ -98,35 +101,47 @@ fun Cursor?.getSingleBlob(column: String) = if (this?.moveToFirst() == true)
 @RequiresPermission(anyOf = [Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED, Manifest.permission.ACCESS_MEDIA_LOCATION], conditional = true)
 fun MutableObjectList<ImageInfo>.processCursor(cursor: Cursor?, contentResolver: ContentResolver, originalUri: Uri): Unit = emitException {
     fun Cursor.toInput() = { getStringOrNull(getColumnIndex(if (atLeastQ) MediaStore.Images.ImageColumns._ID else MediaStore.Images.ImageColumns.DATA))?.let {
-        if (atLeastQ) contentResolver.openInputStream(MediaStore.setRequireOriginal(ContentUris.withAppendedId(originalUri, it.toLong())))
-        else Path(it).inputStream()
+        if (atLeastQ) contentResolver.openFileDescriptor(MediaStore.setRequireOriginal(ContentUris.withAppendedId(originalUri, it.toLong())), "r")
+        else ParcelFileDescriptor.open(Path(it).toAbsolutePath().toFile(), ParcelFileDescriptor.MODE_READ_ONLY)
     } }.catchReturnNull()
+    fun MediaMetadataRetriever.getDate() = {
+        ZonedDateTime.parse(extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE),
+            DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss")).toInstant().toEpochMilli().toString()
+    }.catchReturnNull({
+        ZonedDateTime.parse(extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE),
+            DateTimeFormatter.ofPattern("yyyy MM dd")).toInstant().toEpochMilli().toString()
+    }.catchReturnNull())
+
     while (cursor?.moveToNext() == true) cursor.toInput()?.use { input ->
-        val exif = { ExifInterface(input) }.catchReturnNull()
+        val retriever = { MediaMetadataRetriever().apply { setDataSource(input.fileDescriptor) } }.catchReturnNull()
+        val exif = { ExifInterface(input.fileDescriptor) }.catchReturnNull()
         val size = {
-            BitmapFactory.Options().apply {
+            if(atLeastQ && retriever != null) retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_IMAGE_WIDTH) to
+                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_IMAGE_HEIGHT)
+            else BitmapFactory.Options().apply {
                 inJustDecodeBounds = true
-                BitmapFactory.decodeStream(input, Rect(), this)
+                BitmapFactory.decodeFileDescriptor(input.fileDescriptor, Rect(), this)
             }.let { it.outHeight.toString() to it.outWidth.toString() }
-        }.catchReturn(exif?.getAttribute(ExifInterface.TAG_IMAGE_LENGTH) to exif?.getAttribute(ExifInterface.TAG_IMAGE_WIDTH))
+        }.catchReturn("-1" to "-1")
+        val locationFallback = { PointLocationParser.parsePointLocation(retriever?.extractMetadata(MediaMetadataRetriever.METADATA_KEY_LOCATION)) }.catchReturnNull()
         add(ImageInfo(
             name = cursor.getStringOrNull(cursor.getColumnIndex(MediaStore.Images.ImageColumns.DISPLAY_NAME)).orEmpty(),
             height = size.first?.takeIf { it != "-1" } ?: exif?.getAttribute(ExifInterface.TAG_IMAGE_LENGTH).orEmpty(),
             width = size.second?.takeIf { it != "-1" } ?: exif?.getAttribute(ExifInterface.TAG_IMAGE_WIDTH).orEmpty(),
-            latitude = exif?.latLong?.getOrNull(0),
-            longitude = exif?.latLong?.getOrNull(1),
+            latitude = exif?.latLong?.getOrNull(0) ?: locationFallback?.latitude?.format(Angle.AngleFormat.SHORT)?.toDoubleOrNull(),
+            longitude = exif?.latLong?.getOrNull(1) ?: locationFallback?.longitude?.format(Angle.AngleFormat.SHORT)?.toDoubleOrNull(),
             //gpsTimeStamp = exif?.getAttribute(ExifInterface.TAG_GPS_TIMESTAMP),
             model = exif?.getAttribute(ExifInterface.TAG_MODEL).orEmpty(),
             saveTime = cursor.getLongOrNull(cursor.getColumnIndex(MediaStore.Images.ImageColumns.DATE_MODIFIED))?.toString().orEmpty(),
             date = (cursor.getColumnIndex(MediaStore.Images.ImageColumns.DATE_TAKEN).takeIf { it != -1 }?.let(cursor::getLongOrNull) ?:
-                exif?.getAttribute(ExifInterface.TAG_DATETIME)?.let { time ->
+                (exif?.getAttribute(ExifInterface.TAG_DATETIME))?.let { time ->
                     LocalDateTime.parse(time, DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss")).toInstant(ZonedDateTime.now().offset)
-                        .toEpochMilli().toString() })?.toString().orEmpty(),
+                        .toEpochMilli() })?.toString() ?: retriever?.getDate().orEmpty(),
             createTime = currentNetworkTimeInstant.toEpochMilli().toString(),
             orientation = exif?.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_UNDEFINED)?.toString().orEmpty(),
             xResolution = exif?.getAttribute(ExifInterface.TAG_X_RESOLUTION).orEmpty(),
             yResolution = exif?.getAttribute(ExifInterface.TAG_Y_RESOLUTION).orEmpty(),
-            altitude = exif?.getAltitude(0.0)?.toString().orEmpty(),
+            altitude = (exif?.getAltitude(0.0).takeIf { it != 0.0 } ?: locationFallback?.altitude)?.toString().orEmpty(),
             author = exif?.getAttribute(ExifInterface.TAG_ARTIST).orEmpty(),
             lensMake = exif?.getAttribute(ExifInterface.TAG_LENS_MAKE).orEmpty(),
             lensModel = exif?.getAttribute(ExifInterface.TAG_LENS_MODEL).orEmpty(),
@@ -136,6 +151,7 @@ fun MutableObjectList<ImageInfo>.processCursor(cursor: Cursor?, contentResolver:
             flash = exif?.getAttribute(ExifInterface.TAG_FLASH).orEmpty(),
             takeTime = cursor.getLongOrNull(cursor.getColumnIndex(MediaStore.Images.ImageColumns.DATE_ADDED))?.toString().orEmpty()
         ))
+        if (atLeastQ) retriever?.close() else retriever?.release()
     }
 }
 

@@ -1,13 +1,15 @@
-@file:Suppress("UnusedReceiverParameter", "unused")
+@file:Suppress("unused")
 
 package com.example.infotest.utils
 
+import android.app.KeyguardManager
 import android.content.ComponentName
 import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageInfo
+import android.media.MediaCrypto
 import android.media.MediaDrm
 import android.net.Uri
 import android.os.Build
@@ -17,31 +19,36 @@ import android.os.IInterface
 import android.os.Parcel
 import android.provider.Settings
 import androidx.annotation.RequiresPermission
+import androidx.collection.objectListOf
+import androidx.core.content.getSystemService
 import androidx.core.content.pm.PackageInfoCompat
 import androidx.core.net.toUri
+import androidx.core.util.ObjectsCompat
 import com.example.infotest.GlobalApplication
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailabilityLight
-import com.huawei.hms.ads.identifier.AdvertisingIdClient
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.trySendBlocking
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import splitties.init.appCtx
-import java.util.UUID
-import java.util.concurrent.LinkedBlockingQueue
 import kotlin.io.path.Path
 import kotlin.io.path.bufferedReader
 import kotlin.io.path.exists
 import kotlin.time.Duration.Companion.seconds
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
+import kotlin.uuid.toJavaUuid
 
 @OptIn(DelicateCoroutinesApi::class)
 fun Context.getGAIDFallback() {
-    if (GlobalApplication.gaid.isNullOrBlank() && AdvertisingIdClient.isAdvertisingIdAvailable(applicationContext))
+    if (GlobalApplication.gaid.isNullOrBlank() && com.huawei.hms.ads.identifier.AdvertisingIdClient.isAdvertisingIdAvailable(applicationContext))
         GlobalScope.launch(noExceptionContext) {
-            GlobalApplication.gaid = AdvertisingIdClient.getAdvertisingIdInfo(applicationContext).id
+            GlobalApplication.gaid = com.huawei.hms.ads.identifier.AdvertisingIdClient.getAdvertisingIdInfo(applicationContext).id
         }.invokeOnCompletion { cancel -> if (cancel !is CancellationException && GlobalApplication.gaid.isNullOrBlank())
             GlobalScope.launch(noExceptionContext) { GlobalApplication.gaid = getOAID() }.invokeOnCompletion { cancel2 ->
                 if (cancel2 !is CancellationException && GlobalApplication.gaid.isNullOrBlank()) GlobalScope.launch(noExceptionContext) {
@@ -58,108 +65,136 @@ fun Context.getGAIDFallback() {
         }
 }
 
-//@SuppressLint("HardwareIds")
-fun Context.getUniquePseudoId(): String = UUID.randomUUID().toString()/*try {
+@OptIn(ExperimentalUuidApi::class)
+@Suppress("HardwareIds", "DEPRECATION")
+fun Context.getUniquePseudoId(): String = {
     val szDevIdShort = "35" + Build.BOARD.length % 10 + Build.BRAND.length % 10 + Build.CPU_ABI.length % 10 +
             Build.DEVICE.length % 10 + Build.DISPLAY.length % 10 + Build.HOST.length % 10 +
             Build.ID.length % 10 + Build.MANUFACTURER.length % 10 + Build.MODEL.length % 10 +
             Build.PRODUCT.length % 10 + Build.TAGS.length % 10 + Build.TYPE.length % 10 +
             Build.USER.length % 10
-
     val androidId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
-
     val id = if (Build.SERIAL != Build.UNKNOWN) androidId + Build.SERIAL else androidId
-    val serial: String = try {
+    val serial: String = {
         // api >= 9 reflect to get serial
-        Build::class.java.getField("SERIAL").get(null)?.toString() ?: "serial"
-    } catch (e: Exception) {
-        // must init serial, use itself
-        "serial"
-    }
-    UUID(ObjectsCompat.hashCode(szDevIdShort).toLong(), ObjectsCompat.hashCode(serial).toLong()).toString() + id
-} catch (e: Exception) {
-    ""
-}*/
+        Build::class.java.getField("SERIAL").get(null)?.toString()
+    // must init serial, use itself
+    }.catchReturn("serial")
 
-@OptIn(ExperimentalUnsignedTypes::class, ExperimentalStdlibApi::class)
+    Uuid.fromLongs(ObjectsCompat.hashCode(szDevIdShort).toLong(), ObjectsCompat.hashCode(serial).toLong()).toString() + id
+}.catchEmpty()
+
+@OptIn(ExperimentalUnsignedTypes::class, ExperimentalStdlibApi::class, ExperimentalUuidApi::class)
 fun Context.getUniqueMediaDrmID(): String = {
-    MediaDrm(UUID(-0x121074568629b532L, -0x5c37d8232ae2de13L)).use {
-        val widevineId = it.getPropertyByteArray(MediaDrm.PROPERTY_DEVICE_UNIQUE_ID)
-        val md = getMessageDigestInstanceOrNull("SHA-256")
-        md?.update(widevineId)
-        md?.digest()?.asUByteArray()?.joinToString("") { ubyte -> ubyte.toHexString() }.orEmpty()
+    // https://github.com/androidx/media/blob/release/libraries/common/src/main/java/androidx/media3/common/C.java#L1086
+    Uuid.fromLongs(-0x121074568629b532L, -0x5c37d8232ae2de13L).takeIf { MediaCrypto.isCryptoSchemeSupported(it.toJavaUuid()) }?.let { uuid ->
+        MediaDrm(uuid.toJavaUuid()).use {
+            val md = getMessageDigestInstanceOrNull("SHA-256")
+            md?.update(it.getPropertyByteArray(MediaDrm.PROPERTY_DEVICE_UNIQUE_ID))
+            md?.digest()?.asUByteArray()?.joinToString("") { ubyte -> ubyte.toHexString() }.orEmpty()
+        }
     }
 }.catchEmpty()
+
+// Light is enough for checking for gms availability according to so/57902978
+fun Context.isGoogleServiceAvailable() = GoogleApiAvailabilityLight.getInstance().isGooglePlayServicesAvailable(this) == ConnectionResult.SUCCESS
 
 @OptIn(ExperimentalStdlibApi::class)
 @RequiresPermission("com.google.android.providers.gsf.permission.READ_GSERVICES")
 fun Context.getGSFId(): String = {
-    if (GoogleApiAvailabilityLight.getInstance().isGooglePlayServicesAvailable(this) == ConnectionResult.SUCCESS)
+    if (isGoogleServiceAvailable())
         contentResolver.queryAll("content://com.google.android.gsf.gservices".toUri(), projection = arrayOf("android_id")).use {
             it?.getSingleLong("android_id")?.toULong()?.toHexString().orEmpty()
         }
     else ""
 }.catchEmpty()
 
-suspend fun Context.getOAID(): String? = when (Build.MANUFACTURER.uppercase()) {
-    "ASUS" -> withContext(noExceptionContext) {
+suspend fun Context.getOAID(): String? = when {
+    Build.MANUFACTURER.equals("ASUS", true) -> withContext(noExceptionContext) {
         packageManager.getPackageInfoCompat("com.asus.msa.SupplementaryDID")?.let {
-            getOAIDThroughIBinder(Intent("com.asus.msa.action.ACCESS_DID").setClassName("com.asus.msa.SupplementaryDID", "com.asus.msa.SupplementaryDID.SupplementaryDIDService")) {
-                OAIDInterface.ASUSID(it).getID()
+            processIBinderFromOAIDService(Intent("com.asus.msa.action.ACCESS_DID").setClassName("com.asus.msa.SupplementaryDID", "com.asus.msa.SupplementaryDID.SupplementaryDIDService")) {
+                val iter = OAIDInterface.ASUSID(it)
+                iter.getID().takeIf { iter.isSupport }
             }
         }
     }
-    "LENOVO", "MOTOLORA" -> withContext(noExceptionContext) {
-        getOAIDThroughIBinder(Intent().setClassName("com.zui.deviceidservice", "com.zui.deviceidservice.DeviceidService")) {
-            OAIDInterface.LENID(it).getID()
+    Build.MANUFACTURER.equals("COOLPAD", true) -> withContext(noExceptionContext) {
+        packageManager.getPackageInfoCompat("com.coolpad.deviceidsupport")?.let {
+            processIBinderFromOAIDService(Intent().setClassName("com.coolpad.deviceidsupport", "com.coolpad.deviceidsupport.DeviceIdService")) {
+                OAIDInterface.COOLID.newInstance(it).getID(1, packageName)
+            }
         }
     }
-    "MEIZU" -> withContext(noExceptionContext) {
+    getSystemProperty("ro.odm.manufacturer").equals("PRIZE", true) -> withContext(noExceptionContext) {
+        getSystemService<KeyguardManager>()?.let { (KeyguardManager::class.java.getDeclaredAccessibleMethod("obtainOaid")?.invoke(it, emptyArray<Any>()) as String?)
+            .takeIf { KeyguardManager::class.java.getDeclaredAccessibleMethod("isSupported")?.invoke(it, emptyArray<Any>()) == true } }
+    }
+    getSystemProperty("ro.build.uiversion")?.isNotBlank() == true -> withContext(noExceptionContext) {
+        packageManager.getPackageInfoCompat("com.qiku.id")?.let {
+            processIBinderFromOAIDService(Intent("qiku.service.action.id").setPackage(it.packageName)) {
+                val iter = OAIDInterface.QikuID(it)
+                iter.getID().takeIf { iter.isSupport }
+            }
+        }?.takeIf { it.isNotBlank() } ?: getSystemProperty("ro.build.uiversion").takeIf { it?.contains("360UI", true) == true }?.let {
+            getClassOrNull("android.os.ServiceManager")?.let { clazz ->
+                (clazz.getDeclaredAccessibleMethod("getService", String::class.java)?.invoke(null, "qikuid") as IBinder?).let { ibinder ->
+                    OAIDInterface.QikuID(ibinder, true).let { iter -> iter.getID().takeIf { iter.isSupport } }
+                }
+            }
+        }
+    }
+    objectListOf("LENOVO", "MOTOLORA").any { Build.MANUFACTURER.equals(it,true) } -> withContext(noExceptionContext) {
+        processIBinderFromOAIDService(Intent().setClassName("com.zui.deviceidservice", "com.zui.deviceidservice.DeviceidService")) {
+            val iter = OAIDInterface.LENID(it)
+            iter.getID(1, packageName).takeIf { iter.isSupport }
+        }
+    }
+    Build.MANUFACTURER.equals("MEIZU", true) || Build.DISPLAY.contains("FLYME", true) -> withContext(noExceptionContext) {
         packageManager.resolveContentProvider("com.meizu.flyme.openidsdk", 0)?.let { info ->
             contentResolver.queryAll(Uri.Builder().scheme(ContentResolver.SCHEME_CONTENT).authority(info.authority).build()).use {
                 it.getSingleString("value")
             }
         }
     }
-    "NUBIA" -> withContext(noExceptionContext) {
-        contentResolver.acquireContentProviderClient("content://cn.nubia.identity/identity".toUri())?.let { client ->
-            client.call("getOAID", null, null)?.takeIf { it.getInt("code", -1) == 0 }?.getString("id").also {
-                @Suppress("DEPRECATION")
-                if (atLeastN) client.close() else client.release()
-            }
+    Build.MANUFACTURER.equals("NUBIA", true) && atLeastQ -> withContext(noExceptionContext) {
+        contentResolver.acquireContentProviderClient("content://cn.nubia.identity/identity".toUri())?.use { client ->
+            client.call("getOAID", null, null)?.takeIf { it.getInt("code", -1) == 0 }?.getString("id")
         }
     }
-    "ONEPLUS", "OPPO" -> withContext(noExceptionContext) {
+    objectListOf("ONEPLUS", "OPPO").any { Build.MANUFACTURER.equals(it, true) } || getSystemProperty("ro.build.version.opporom")?.isNotBlank() == true -> withContext(noExceptionContext) {
         packageManager.getPackageInfoCompat("com.heytap.openid")?.let { info ->
             PackageInfoCompat.getLongVersionCode(info).takeIf { it >= -1 }?.let {
-                getOAIDThroughIBinder(Intent("action.com.heytap.openid.OPEN_ID_SERVICE").setClassName("com.heytap.openid", "com.heytap.openid.IdentifyService")) { binder ->
+                processIBinderFromOAIDService(Intent("action.com.heytap.openid.OPEN_ID_SERVICE").setClassName("com.heytap.openid", "com.heytap.openid.IdentifyService")) { binder ->
                     delay(3.seconds)
-                    OAIDInterface.OPPOID.newInstance(binder).getID(packageName, packageManager.getPackageInfoCompat(packageName)?.getPrimarySignatureDigest().orEmpty(), "OUID")
+                    OAIDInterface.OPPOID.newInstance(binder).getID(3, packageName, packageManager.getPackageInfoCompat(packageName)?.getPrimarySignatureDigest().orEmpty(), "OUID")
                 }
+            }
+        } ?: packageManager.getPackageInfoCompat("com.coloros.mcs")?.let {
+            processIBinderFromOAIDService(Intent("action.com.oplus.stdid.ID_SERVICE").setClassName("com.coloros.mcs", "com.oplus.stdid.IdentifyService")) { binder ->
+                delay(3.seconds)
+                OAIDInterface.OPPOID.newInstance(binder, true).getID(3, packageName, packageManager.getPackageInfoCompat(packageName)?.getPrimarySignatureDigest().orEmpty(), "OUID")
             }
         }
     }
-    "SAMSUNG" -> withContext(noExceptionContext) {
+    Build.MANUFACTURER.equals("SAMSUNG", true) -> withContext(noExceptionContext) {
         packageManager.getPackageInfoCompat("com.samsung.android.deviceidservice")?.let {
-            getOAIDThroughIBinder(Intent().setClassName("com.samsung.android.deviceidservice", "com.samsung.android.deviceidservice.DeviceIdService")) {
+            processIBinderFromOAIDService(Intent().setClassName("com.samsung.android.deviceidservice", "com.samsung.android.deviceidservice.DeviceIdService")) {
                 OAIDInterface.SAMID(it).getID()
             }
         }
     }
-    "VIVO" -> withContext(noExceptionContext) {
-        contentResolver.queryAll("content://com.vivo.vms.IdProvider/IdentifierId/OAID".toUri()).use {
-            it.getSingleString("value")
-        }
+    Build.MANUFACTURER.equals("VIVO", true) || getSystemProperty("ro.vivo.os.version")?.isNotBlank() == true -> withContext(noExceptionContext) {
+        contentResolver.queryAll("content://com.vivo.vms.IdProvider/IdentifierId/OAID".toUri()).use { it.getSingleString("value") }
     }
-    "XIAOMI", "BLACKSHARK" -> withContext(noExceptionContext) {
+    objectListOf("XIAOMI", "BLACKSHARK").any { Build.MANUFACTURER.equals(it, true) } || getSystemProperty("ro.miui.ui.version.name")?.isNotBlank() == true -> withContext(noExceptionContext) {
         getClassOrNull("com.android.id.impl.IdProviderImpl")?.let {
-            it.getAccessibleMethod("getOAID", Context::class.java)?.invoke(it.getAccessibleConstructor(true)?.newInstance(), this@getOAID) as String
+            it.getAccessibleMethod("getOAID", Context::class.java)?.invoke(it.getAccessibleConstructor(true)?.newInstance(), this@getOAID) as String?
         }
     }
-    "ZTE" -> getOAIDOfficially()
+    Build.MANUFACTURER.equals("ZTE", true) -> getOAIDOfficially()
     // perfer HMS SDK
-    "HUAWEI" -> withContext(noExceptionContext) {
-        AdvertisingIdClient.getAdvertisingIdInfo(this@getOAID).id
+    com.huawei.hms.ads.identifier.AdvertisingIdClient.isAdvertisingIdAvailable(this@getOAID) -> withContext(noExceptionContext) {
+        com.huawei.hms.ads.identifier.AdvertisingIdClient.getAdvertisingIdInfo(this@getOAID).id
         /*packageManager.getPackageInfoCompat("com.huawei.hwid")?.let {
             Intent("com.uodis.opendevice.OPENIDS_SERVICE").setPackage("com.huawei.hwid").takeIf { packageManager.queryIntentServices(it, 0).isNotEmpty() }?.let { intent ->
                 // if Settings.Global.getString(contentResolver, "pps_oaid") and Settings.Global.getString(context.getContentResolver(), "pps_track_limit") all non null, id will be all zero.
@@ -167,245 +202,189 @@ suspend fun Context.getOAID(): String? = when (Build.MANUFACTURER.uppercase()) {
             }
         }*/
     }
-    else -> {
-        if (Build.MANUFACTURER.equals("FERRMEOS", ignoreCase = true) || getSystemProperty("ro.build.freeme.label").equals("FREEMEOS", ignoreCase = true))
-            getOAIDOfficially()
-        else if (Build.MANUFACTURER.equals("SSUI", ignoreCase = true) || !getSystemProperty("ro.ssui.product").equals("unknown", ignoreCase = true))
-            getOAIDOfficially()
-        else null
+    com.hihonor.ads.identifier.AdvertisingIdClient.isAdvertisingIdAvailable(this@getOAID) -> withContext(noExceptionContext) {
+        com.hihonor.ads.identifier.AdvertisingIdClient.getAdvertisingIdInfo(this@getOAID).id
     }
+    (Build.MANUFACTURER.equals("FERRMEOS", ignoreCase = true) ||
+            getSystemProperty("ro.build.freeme.label").equals("FREEMEOS", ignoreCase = true)) -> getOAIDOfficially()
+    (Build.MANUFACTURER.equals("SSUI", ignoreCase = true) ||
+            !getSystemProperty("ro.ssui.product").equals("unknown", ignoreCase = true)) -> getOAIDOfficially()
+    else -> getOAIDOfficially()
 }
 
 private suspend fun Context.getOAIDOfficially() = withContext(noExceptionContext) {
+    fun startService(intent: Intent) = if (atLeastQ) startForegroundService(intent) else this@getOAIDOfficially.startService(intent)
     packageManager.getPackageInfoCompat("com.mdid.msa")?.let {
-        startService(
-            Intent("com.bun.msa.action.start.service")
+        startService(Intent("com.bun.msa.action.start.service")
             .setClassName("com.mdid.msa", "com.mdid.msa.service.MsaKlService")
             .putExtra("com.bun.msa.param.pkgname", packageName)
             .putExtra("com.bun.msa.param.runinset", true))?.let {
-            getOAIDThroughIBinder(
-                Intent("com.bun.msa.action.bindto.service")
-                .setClassName("com.mdid.msa", "com.mdid.msa.service.MsaIdService")
-                .putExtra("com.bun.msa.param.pkgname", packageName)) {
-                OAIDInterface.GENERALID(it).getID()
-            }
+                processIBinderFromOAIDService(Intent("com.bun.msa.action.bindto.service")
+                    .setClassName("com.mdid.msa", "com.mdid.msa.service.MsaIdService")
+                    .putExtra("com.bun.msa.param.pkgname", packageName)) {
+                    val iter = OAIDInterface.GENERALID(it)
+                    iter.getID(1, packageName).takeIf { iter.isSupport }
+                }
         }
     }
 }
 
-private suspend fun Context.getOAIDThroughIBinder(intent: Intent, iface: suspend (IBinder?) -> String?): String? {
-    val queue = LinkedBlockingQueue<IBinder?>(1)
+private suspend fun Context.processIBinderFromOAIDService(intent: Intent, iface: suspend (IBinder?) -> String?): String? {
+    val queue = Channel<IBinder?>(Channel.CONFLATED)
     val connection = object: ServiceConnection {
-        override fun onServiceConnected(name: ComponentName?, service: IBinder?) { queue.offer(service) }
+        override fun onServiceConnected(name: ComponentName?, service: IBinder?) { queue.trySendBlocking(service) }
         override fun onServiceDisconnected(name: ComponentName?) = Unit
     }
     if (bindService(intent, connection, Context.BIND_AUTO_CREATE)) try {
-        return iface.invoke(queue.poll())
+        return iface.invoke(queue.tryReceive().getOrThrow())
+    } catch (e: Exception) {
+        e.printStackTrace()
     } finally {
         unbindService(connection)
-        queue.clear()
+        queue.close()
     }
     return null
 }
 
 // https://github.com/shuzilm-open-source/Get_Oaid_CNAdid/tree/master/OAID_source
 interface OAIDInterface : IInterface {
-    fun getID(vararg parameters: String = emptyArray()): String?
+    val descriptor: String
+    val idOffset: Int
+    val supportOffset: Int
 
-    class ASUSID(private val iBinder: IBinder?) : OAIDInterface {
-        override fun asBinder() = iBinder
-
-        override fun getID(vararg parameters: String): String? {
+    val isSupport: Boolean
+        get() {
+            if (supportOffset < 0) return true
             val obtain = Parcel.obtain()
             val obtain2 = Parcel.obtain()
             try {
-                obtain.writeInterfaceToken("com.asus.msa.SupplementaryDID.IDidAidlInterface")
-                iBinder?.transact(3, obtain, obtain2, 0)
+                obtain.writeInterfaceToken(descriptor)
+                asBinder()?.transact(IBinder.FIRST_CALL_TRANSACTION + supportOffset, obtain, obtain2, 0)
                 obtain2.readException()
-                return obtain2.readString()
+                return obtain2.readInt() != 0
             } catch (e: Throwable) {
                 e.printStackTrace()
             } finally {
-                obtain.recycle()
                 obtain2.recycle()
+                obtain.recycle()
             }
-            return null
+            return true
         }
 
-        val isSupport: Boolean
-            get() {
-                var support = false
-                val obtain = Parcel.obtain()
-                val obtain2 = Parcel.obtain()
-                try {
-                    obtain.writeInterfaceToken("com.asus.msa.SupplementaryDID.IDidAidlInterface")
-                    iBinder?.transact(1, obtain, obtain2, 0)
-                    obtain2.readException()
-                    if (obtain2.readInt() != 0) {
-                        support = true
-                    }
-                } catch (e: Throwable) {
-                    e.printStackTrace()
-                } finally {
-                    obtain2.recycle()
-                    obtain.recycle()
-                }
-                return support
+    fun getID(length: Int = 0, vararg parameters: String = emptyArray()): String? {
+        val obtain = Parcel.obtain()
+        val obtain2 = Parcel.obtain()
+        try {
+            obtain.writeInterfaceToken(descriptor)
+            if (length > 0 && parameters.size == length) {
+                parameters.forEach { obtain.writeString(it) }
             }
+            asBinder().transact(IBinder.FIRST_CALL_TRANSACTION + idOffset, obtain, obtain2, 0)
+            obtain2.readException()
+            return obtain2.readString()
+        } catch (e: Throwable) {
+            e.printStackTrace()
+        } finally {
+            obtain.recycle()
+            obtain2.recycle()
+        }
+        return null
+    }
+
+    class ASUSID(private val iBinder: IBinder?) : OAIDInterface {
+        override val descriptor: String
+            get() = "com.asus.msa.SupplementaryDID.IDidAidlInterface"
+        override val idOffset: Int
+            get() = 2
+        override val supportOffset: Int
+            get() = 0
+
+        override fun asBinder() = iBinder
     }
 
     class HWID(private val iBinder: IBinder?) : OAIDInterface {
+        override val descriptor: String
+            get() = "com.uodis.opendevice.aidl.OpenDeviceIdentifierService"
+        override val idOffset: Int
+            get() = 0
+        override val supportOffset: Int
+            get() = 0
+
         override fun asBinder() = iBinder
-
-        override fun getID(vararg parameters: String): String? {
-            val obtain = Parcel.obtain()
-            val obtain2 = Parcel.obtain()
-            try {
-                obtain.writeInterfaceToken("com.uodis.opendevice.aidl.OpenDeviceIdentifierService")
-                iBinder?.transact(1, obtain, obtain2, 0)
-                obtain2.readException()
-                return obtain2.readString()
-            } catch (e: Throwable) {
-                e.printStackTrace()
-            } finally {
-                obtain.recycle()
-                obtain2.recycle()
-            }
-            return null
-        }
-
-        val boo: Boolean
-            get() {
-                var boo = false
-                val obtain = Parcel.obtain()
-                val obtain2 = Parcel.obtain()
-                try {
-                    obtain.writeInterfaceToken("com.uodis.opendevice.aidl.OpenDeviceIdentifierService")
-                    iBinder?.transact(1, obtain, obtain2, 0)
-                    obtain2.readException()
-                    if (obtain2.readInt() != 0) {
-                        boo = true
-                    }
-                } catch (e: Throwable) {
-                    e.printStackTrace()
-                } finally {
-                    obtain2.recycle()
-                    obtain.recycle()
-                }
-                return boo
-            }
     }
 
     class LENID(private val iBinder: IBinder?) : OAIDInterface {
-        override fun asBinder() = iBinder
-        override fun getID(vararg parameters: String): String? {
-            val obtain = Parcel.obtain()
-            val obtain2 = Parcel.obtain()
-            try {
-                obtain.writeInterfaceToken("com.zui.deviceidservice.IDeviceidInterface")
-                iBinder?.transact(1, obtain, obtain2, 0)
-                obtain2.readException()
-                return obtain2.readString()
-            } catch (e: Throwable) {
-                e.printStackTrace()
-            } finally {
-                obtain.recycle()
-                obtain2.recycle()
-            }
-            return null
-        }
+        override val descriptor: String
+            get() = "com.zui.deviceidservice.IDeviceidInterface"
+        override val idOffset: Int
+            get() = 0
+        override val supportOffset: Int
+            get() = 2
 
-        val isSupport: Boolean
-            get() {
-                var support = false
-                val obtain = Parcel.obtain()
-                val obtain2 = Parcel.obtain()
-                try {
-                    obtain.writeInterfaceToken("com.asus.msa.SupplementaryDID.IDidAidlInterface")
-                    iBinder?.transact(3, obtain, obtain2, 0)
-                    obtain2.readException()
-                    if (obtain2.readInt() != 0) {
-                        support = true
-                    }
-                } catch (e: Throwable) {
-                    e.printStackTrace()
-                } finally {
-                    obtain2.recycle()
-                    obtain.recycle()
-                }
-                return support
-            }
+        override fun asBinder() = iBinder
     }
 
-    class OPPOID(private val iBinder: IBinder?) : OAIDInterface {
+    class OPPOID private constructor(private val iBinder: IBinder?, private val isOnePlus: Boolean = false) : OAIDInterface {
         companion object {
-            fun newInstance(iBinder: IBinder?): OPPOID =
-                iBinder?.queryLocalInterface("com.heytap.openid.IOpenID")?.takeIf { it is OPPOID } as OPPOID? ?: OPPOID(iBinder)
+            fun newInstance(iBinder: IBinder?, isOnePlus: Boolean = false): OPPOID =
+                iBinder?.queryLocalInterface(if (isOnePlus) "com.oplus.stdid.IStdID" else "com.heytap.openid.IOpenID")?.takeIf { it is OPPOID } as OPPOID? ?: OPPOID(iBinder, isOnePlus)
         }
-        override fun asBinder() = iBinder
+        override val descriptor: String
+            get() = if (isOnePlus) "com.oplus.stdid.IStdID" else "com.heytap.openid.IOpenID"
+        override val idOffset: Int
+            get() = 0
+        override val supportOffset: Int
+            get() = -1
 
-        @Suppress("ReplaceGetOrSet")
-        override fun getID(vararg parameters: String): String? {
-            parameters.takeIf { it.size == 3 }?.let {
-                val obtain = Parcel.obtain()
-                val obtain2 = Parcel.obtain()
-                try {
-                    obtain.writeInterfaceToken("com.heytap.openid.IOpenID")
-                    obtain.writeString(it.get(0))
-                    obtain.writeString(it.get(1))
-                    obtain.writeString(it.get(2))
-                    iBinder?.transact(1, obtain, obtain2, 0)
-                    obtain2.readException()
-                    return obtain2.readString()
-                } catch (e: Throwable) {
-                    e.printStackTrace()
-                } finally {
-                    obtain.recycle()
-                    obtain2.recycle()
-                }
-            }
-            return null
-        }
+        override fun asBinder() = iBinder
     }
 
     class SAMID(private val iBinder: IBinder?): OAIDInterface {
+        override val descriptor: String
+            get() = "com.samsung.android.deviceidservice.IDeviceIdService"
+        override val idOffset: Int
+            get() = 0
+        override val supportOffset: Int
+            get() = -1
+
         override fun asBinder() = iBinder
-        override fun getID(vararg parameters: String): String? {
-            val obtain = Parcel.obtain()
-            val obtain2 = Parcel.obtain()
-            try {
-                obtain.writeInterfaceToken("com.samsung.android.deviceidservice.IDeviceIdService")
-                iBinder?.transact(1, obtain, obtain2, 0)
-                obtain2.readException()
-                return obtain2.readString()
-            } catch (e: Throwable) {
-                e.printStackTrace()
-            } finally {
-                obtain.recycle()
-                obtain2.recycle()
-            }
-            return null
+    }
+
+    class COOLID private constructor(private val iBinder: IBinder?): OAIDInterface {
+        companion object {
+            fun newInstance(iBinder: IBinder?): COOLID =
+                iBinder?.queryLocalInterface("com.coolpad.deviceidsupport.IDeviceIdManager")?.takeIf { it is COOLID } as COOLID? ?: COOLID(iBinder)
         }
+        override val descriptor: String
+            get() = "com.coolpad.deviceidsupport.IDeviceIdManager"
+        override val idOffset: Int
+            get() = 1
+        override val supportOffset: Int
+            get() = -1
+
+        override fun asBinder() = iBinder
+    }
+
+    class QikuID(private val iBinder: IBinder?, private val isFromManager: Boolean = false): OAIDInterface {
+        override val descriptor: String
+            get() = "com.qiku.id.IOAIDInterface"
+        override val idOffset: Int
+            get() = if (isFromManager) 3 else 2
+        override val supportOffset: Int
+            get() = if (isFromManager) 1 else 0
+
+        override fun asBinder() = iBinder
     }
 
     class GENERALID(private val iBinder: IBinder?): OAIDInterface {
+        override val descriptor: String
+            get() = "com.bun.lib.MsaIdInterface"
+        override val idOffset: Int
+            get() = 2
+        override val supportOffset: Int
+            get() = 0
+
         override fun asBinder() = iBinder
-        override fun getID(vararg parameters: String): String? {
-            val obtain = Parcel.obtain()
-            val obtain2 = Parcel.obtain()
-            try {
-                obtain.writeInterfaceToken("com.bun.lib.MsaIdInterface")
-                iBinder?.transact(3, obtain, obtain2, 0)
-                obtain2.readException()
-                return obtain2.readString()
-            } catch (e: Throwable) {
-                e.printStackTrace()
-            } finally {
-                obtain.recycle()
-                obtain2.recycle()
-            }
-            return null
-        }
     }
 }
 

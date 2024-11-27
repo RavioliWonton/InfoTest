@@ -16,18 +16,20 @@ import androidx.privacysandbox.ads.adservices.appsetid.AppSetIdManager
 import com.example.infotest.utils.Constants
 import com.example.infotest.utils.getGAIDFallback
 import com.example.infotest.utils.getPackageInfoCompat
+import com.example.infotest.utils.isGoogleServiceAvailable
 import com.example.infotest.utils.isNetworkAvailable
 import com.example.infotest.utils.noExceptionContext
 import com.getkeepsafe.relinker.ReLinker
 import com.google.android.gms.ads.identifier.AdvertisingIdClient
 import com.google.android.gms.appset.AppSet
-import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.common.GoogleApiAvailabilityLight
 import com.google.android.gms.net.CronetProviderInstaller
 import com.google.android.gms.security.ProviderInstaller
+import com.google.firebase.installations.FirebaseInstallations
 import com.instacart.truetime.time.TrueTimeImpl
 import com.instacart.truetime.time.TrueTimeParameters
+import com.tencent.map.geolocation.TencentLocationManagerOptions
 import com.tencent.mmkv.MMKV
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.DelicateCoroutinesApi
@@ -50,8 +52,8 @@ class GlobalApplication: Application() {
         MMKV.initialize(applicationContext, ContextCompat.getNoBackupFilesDir(this)?.absolutePath + Constants.mmkvDefaultRoute) {
             ReLinker.recursively().loadLibrary(applicationContext, it)
         }
-        // Light is enough for checking for gms availability according to so/57902978
-        if (GoogleApiAvailabilityLight.getInstance().isGooglePlayServicesAvailable(this) == ConnectionResult.SUCCESS) {
+        TencentLocationManagerOptions.setDebuggable(isDebug)
+        if (isGoogleServiceAvailable()) {
             ProviderInstaller.installIfNeededAsync(this, object : ProviderInstaller.ProviderInstallListener {
                 override fun onProviderInstallFailed(errorCode: Int, recoveryIntent: Intent?) {
                     if (GoogleApiAvailabilityLight.getInstance().isUserResolvableError(errorCode))
@@ -63,7 +65,11 @@ class GlobalApplication: Application() {
             })
             if (gaid.isNullOrBlank()) GlobalScope.launch(noExceptionContext) {
                 gaid = AdIdManager.obtain(applicationContext)?.getAdId()?.adId ?: AdvertisingIdClient.getAdvertisingIdInfo(applicationContext).id
-            }.invokeOnCompletion { if (it !is CancellationException) getGAIDFallback() }
+            }.invokeOnCompletion {
+                if (it !is CancellationException && gaid.isNullOrBlank()) GlobalScope.launch(noExceptionContext) {
+                    gaid = FirebaseInstallations.getInstance().id.await()
+                }.invokeOnCompletion { if (it !is CancellationException && gaid.isNullOrBlank()) getGAIDFallback() }
+            }
             // Always change, not usable
             if (appSetId.isNullOrBlank()) GlobalScope.launch(noExceptionContext) {
                 appSetId = AppSetIdManager.obtain(applicationContext)?.getAppSetId()?.id ?: AppSet.getClient(applicationContext).appSetIdInfo.await().id

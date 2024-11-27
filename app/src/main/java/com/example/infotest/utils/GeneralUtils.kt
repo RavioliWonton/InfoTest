@@ -38,12 +38,13 @@ import java.lang.reflect.Type
 import java.nio.file.FileSystems
 import java.nio.file.LinkOption
 import java.security.MessageDigest
-import java.util.UUID
 import kotlin.contracts.ExperimentalContracts
 import kotlin.contracts.InvocationKind
 import kotlin.contracts.contract
 import kotlin.io.path.Path
 import kotlin.io.path.exists
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
 @Suppress("SpellCheckingInspection")
 object Constants {
@@ -263,7 +264,8 @@ fun PackageManager.getPackageInfoCompat(packageName: String, packageInfoFlags: I
 
 fun getMessageDigestInstanceOrNull(algorithm: String) = { MessageDigest.getInstance(algorithm) }.catchReturnNull()
 
-fun String?.toUUIDorNull() = { UUID.fromString(this) }.catchReturnNull()
+@OptIn(ExperimentalUuidApi::class)
+fun String?.toUUIDorNull() = { Uuid.parse(this.orEmpty()) }.catchReturnNull()
 
 fun BaseBundle.getBooleanCompat(key: String, defaultValue: Boolean = false) = {
     if (atLeastLM) getBoolean(key, defaultValue)

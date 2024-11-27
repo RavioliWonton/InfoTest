@@ -17,6 +17,7 @@ import android.os.BatteryManager
 import android.os.Build
 import android.telephony.PhoneNumberUtils
 import android.telephony.TelephonyManager
+import android.view.WindowManager
 import androidx.annotation.RequiresPermission
 import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
@@ -36,7 +37,7 @@ fun Activity.getHardwareInfo(): Hardware {
     val metric = WindowMetricsCalculator.getOrCreate().computeCurrentWindowMetrics(this)
     val currentPoint = metric.bounds
     val insets = (ViewCompat.getRootWindowInsets(window.decorView) ?:
-        if (atLeastR) metric.getWindowInsets() else WindowInsetsCompat.CONSUMED)
+        if (atLeastR) WindowInsetsCompat.toWindowInsetsCompat(getSystemService<WindowManager>()!!.currentWindowMetrics.getWindowInsets(), window.decorView) else WindowInsetsCompat.CONSUMED)
             .getInsets(WindowInsetsCompat.Type.systemBars())
     return Hardware(
         board = Build.BOARD.takeIf { it != Build.UNKNOWN }.orEmpty(),

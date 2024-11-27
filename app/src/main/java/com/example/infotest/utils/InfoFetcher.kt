@@ -5,7 +5,6 @@ package com.example.infotest.utils
 import android.Manifest
 import android.accounts.AccountManager
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.app.ActivityManager
 import android.content.ContentResolver
 import android.content.ContentValues
@@ -32,6 +31,7 @@ import android.telephony.PhoneNumberUtils
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
 import android.view.InputDevice
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.annotation.RequiresPermission
 import androidx.collection.mutableObjectListOf
@@ -72,15 +72,11 @@ import kotlinx.coroutines.future.asCompletableFuture
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import splitties.init.appCtx
-import java.io.FileOutputStream
 import java.net.NetworkInterface
-import java.net.URL
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
-import java.nio.charset.StandardCharsets
 import java.nio.file.StandardOpenOption
 import java.time.ZoneId
-import java.util.Scanner
 import kotlin.io.path.ExperimentalPathApi
 import kotlin.io.path.Path
 import kotlin.io.path.PathWalkOption
@@ -124,7 +120,8 @@ private fun ComponentActivity.getDeviceInfo(): DeviceInfo {
     val storageInfo = getStoragePair()
     val sdCardInfo = getSDCardPair()
     val metric = WindowMetricsCalculator.getOrCreate().computeCurrentWindowMetrics(this)
-    val insets = (ViewCompat.getRootWindowInsets(window.decorView) ?: if (atLeastR) metric.getWindowInsets()
+    val insets = (ViewCompat.getRootWindowInsets(window.decorView) ?:
+        if (atLeastR) WindowInsetsCompat.toWindowInsetsCompat(getSystemService<WindowManager>()!!.currentWindowMetrics.getWindowInsets(), window.decorView)
         else WindowInsetsCompat.CONSUMED).getInsets(WindowInsetsCompat.Type.systemBars())
     val address = {
         if (atLeastT) GlobalApplication.address
@@ -453,7 +450,7 @@ fun String?.saveFileToDownload(fileName: String, contentResolver: ContentResolve
             put(MediaStore.Downloads.IS_PENDING, 1)
         }
         contentResolver.insert(MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY), model)?.let { uri ->
-            (contentResolver.openOutputStream(uri) as? FileOutputStream)?.use { stream ->
+            contentResolver.openAssetFileDescriptor(uri, "w")?.createOutputStream()?.use { stream ->
                 //stream.channel.write(ByteBuffer.allocate(1024).also { it.put(this.orEmpty().encodeToByteArray()) })
                 stream.channel.write(buffer)
                 stream.fd.sync()

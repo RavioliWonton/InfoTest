@@ -40,6 +40,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asExecutor
 import splitties.init.appCtx
 import java.net.NetworkInterface
+import java.time.Clock
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import kotlin.io.path.Path
@@ -92,18 +93,15 @@ fun StartWifiScan() {
 
 @RequiresPermission(Manifest.permission.ACCESS_NETWORK_STATE)
 fun ComponentActivity.registerWifiCallback(onCapabilitiesChanged: (network: android.net.Network, networkCapabilities: NetworkCapabilities) -> Unit,
-                                           onLinkPropertiesChanged: (network: android.net.Network, linkProperties: LinkProperties) -> Unit) {
-    val connectivityManager = applicationContext.getSystemService<ConnectivityManager>()
-    lifecycle.addObserver(processWifiCallBackObserver(connectivityManager, onCapabilitiesChanged, onLinkPropertiesChanged))
-}
+                                           onLinkPropertiesChanged: (network: android.net.Network, linkProperties: LinkProperties) -> Unit) =
+    lifecycle.addObserver(processWifiCallBackObserver(applicationContext.getSystemService<ConnectivityManager>(), onCapabilitiesChanged, onLinkPropertiesChanged))
 @Composable
 @RequiresPermission(Manifest.permission.ACCESS_NETWORK_STATE)
 fun RegisterWifiCallback(onCapabilitiesChanged: (network: android.net.Network, networkCapabilities: NetworkCapabilities) -> Unit,
                          onLinkPropertiesChanged: (network: android.net.Network, linkProperties: LinkProperties) -> Unit) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val connectivityManager = context.applicationContext.getSystemService<ConnectivityManager>()
-    lifecycleOwner.lifecycle.addObserver(processWifiCallBackObserver(connectivityManager, onCapabilitiesChanged, onLinkPropertiesChanged))
+    lifecycleOwner.lifecycle.addObserver(processWifiCallBackObserver(context.applicationContext.getSystemService<ConnectivityManager>(), onCapabilitiesChanged, onLinkPropertiesChanged))
 }
 @RequiresPermission(Manifest.permission.ACCESS_NETWORK_STATE)
 private fun processWifiCallBackObserver(manager: ConnectivityManager?, onCapabilitiesChanged: (network: android.net.Network, networkCapabilities: NetworkCapabilities) -> Unit,
@@ -184,7 +182,7 @@ val currentNetworkTimeInstant: Instant = {
     else if (atLeastQ && appCtx.getSystemService<LocationManager>()
             ?.isProviderEnabled(LocationManager.GPS_PROVIDER) == true)
         SystemClock.currentGnssTimeClock().instant()
-    else Instant.now()
+    else Clock.systemUTC().instant()
 }.catchReturn(Instant.now())
 
 private val systemHasNetworkTime = { atLeastT && SystemClock.currentNetworkTimeClock().instant().isSupported(ChronoUnit.MILLIS) }.catchFalse()

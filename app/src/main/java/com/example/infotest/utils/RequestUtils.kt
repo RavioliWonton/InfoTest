@@ -24,7 +24,6 @@ import org.chromium.net.CronetException
 import org.chromium.net.ExperimentalCronetEngine
 import splitties.init.appCtx
 import java.io.IOException
-import java.lang.IllegalStateException
 import java.net.URL
 import java.nio.ByteBuffer
 import java.nio.charset.Charset
@@ -120,6 +119,7 @@ private suspend fun String.getResponseBufferHttpEngine(method: String, headers: 
         }
     }.build().start()
 }
+@Suppress("DEPRECATION")
 private suspend fun String.getResponseBufferCronet(method: String, headers: Map<String, String>, data: ByteArray? = null) = suspendCancellableCoroutine<Buffer> { cont ->
     cronetEngine.newUrlRequestBuilder(this, object : org.chromium.net.UrlRequest.Callback() {
         private val buffer = Buffer()
