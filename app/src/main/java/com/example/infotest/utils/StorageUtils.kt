@@ -1,6 +1,6 @@
 package com.example.infotest.utils
 
-import android.annotation.SuppressLint
+import android.Manifest
 import android.app.ActivityManager
 import android.app.usage.StorageStatsManager
 import android.content.Context
@@ -10,6 +10,7 @@ import android.os.Parcelable
 import android.os.StatFs
 import android.os.storage.StorageManager
 import android.os.storage.StorageVolume
+import androidx.annotation.RequiresPermission
 import androidx.annotation.WorkerThread
 import androidx.collection.mutableObjectListOf
 import androidx.collection.objectListOf
@@ -20,6 +21,7 @@ import kotlinx.parcelize.Parceler
 import kotlinx.parcelize.Parcelize
 import kotlinx.parcelize.WriteWith
 import okio.Path.Companion.toPath
+import java.lang.reflect.Array
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -43,6 +45,7 @@ fun Context.getStorageInfo(): Storage {
                 Environment.MEDIA_MOUNTED_READ_ONLY, Environment.MEDIA_SHARED)).toInt()
         }.catchZero().toString(),
         extraSd = {
+            @Suppress("DEPRECATION")
             (ContextCompat.getExternalFilesDirs(this, null).filterNotNull()
                 .any { it.absolutePath.contains("extra") }).toInt()
         }.catchZero().toString(),
@@ -82,17 +85,18 @@ object PathParceler: Parceler<Path?> {
     }
 }
 
+@RequiresPermission(Manifest.permission.MANAGE_EXTERNAL_STORAGE)
 private fun Context.getSDCardInfo() = mutableObjectListOf<SDCardInfo>().applyEmitException {
     val sm = getSystemService<StorageManager>()
-    if (atLeastN) sm?.storageVolumes?.mapNotNull { SDCardInfo(it.directoryCompat, it.state, it.isRemovable) }?.let(::addAll)
+    if (atLeastN) (if (atLeastT && Environment.isExternalStorageManager()) sm?.storageVolumesIncludingSharedProfiles else sm?.storageVolumes)?.mapNotNull { SDCardInfo(it.directoryCompat, it.state, it.isRemovable) }?.let(::addAll)
     else getClassOrNull("android.os.storage.StorageVolume")?.let { clazz ->
         val pathMethod = clazz.getAccessibleMethod("getPath")
         val isRemovableMethod = clazz.getAccessibleMethod("isRemovable")
         val volumeStateMethod = StorageManager::class.java.getAccessibleMethod("getVolumeState", String::class.java)
         StorageManager::class.java.getAccessibleMethod("getVolumeList")?.invoke(sm, emptyArray<Any>())?.let {
-            val length = java.lang.reflect.Array.getLength(it)
+            val length = Array.getLength(it)
             for (i in 0 until length) {
-                val storageVolumeElement = java.lang.reflect.Array.get(it, i)
+                val storageVolumeElement = Array.get(it, i)
                 val path = pathMethod?.invoke(storageVolumeElement, emptyArray<Any>()) as String
                 add(SDCardInfo(Paths.get(path), volumeStateMethod?.invoke(sm, path) as String,
                     isRemovableMethod?.invoke(storageVolumeElement, emptyArray<Any>()) as Boolean))
@@ -101,6 +105,7 @@ private fun Context.getSDCardInfo() = mutableObjectListOf<SDCardInfo>().applyEmi
     }
 }
 
+@RequiresPermission(Manifest.permission.MANAGE_EXTERNAL_STORAGE)
 fun Context.getSDCardPair(): Pair<String, String> = {
     getSDCardInfo().firstOrNull {
         it.state in objectListOf(Environment.MEDIA_MOUNTED, Environment.MEDIA_MOUNTED_READ_ONLY)
@@ -115,28 +120,29 @@ fun Context.getSDCardPair(): Pair<String, String> = {
 
 @OptIn(ExperimentalUuidApi::class)
 @WorkerThread
-@SuppressLint("DiscouragedPrivateApi")
+@Suppress("DiscouragedPrivateApi")
+@RequiresPermission(Manifest.permission.MANAGE_EXTERNAL_STORAGE)
 fun Context.getStoragePair(): Pair<Long, Long> {
     var total = 0L
     var free = 0L
     try {
         val storageManager = getSystemService<StorageManager>()
-        if (atLeastN) {
-            val validVolumes = storageManager?.storageVolumes
-                ?.filter { it.state in objectListOf(Environment.MEDIA_MOUNTED, Environment.MEDIA_MOUNTED_READ_ONLY) }
+        if (atLeastN && storageManager != null) {
+            val validVolumes = (if (atLeastT && Environment.isExternalStorageManager()) storageManager.storageVolumesIncludingSharedProfiles
+                else storageManager.storageVolumes).filter { it.state in objectListOf(Environment.MEDIA_MOUNTED, Environment.MEDIA_MOUNTED_READ_ONLY) }
             if (atLeastO)
-                validVolumes?.mapNotNull {
+                validVolumes.mapNotNull {
                     if (atLeastS) it.storageUuid else {
                         { it.directoryCompat?.toFile()?.let(storageManager::getUuidForPath) }.catchReturnNull(it.uuid.toUUIDorNull()?.toJavaUuid())
                     }
-                }.takeIf { it?.isNotEmpty() == true }?.forEach {
+                }.takeIf { it.isNotEmpty() }?.forEach {
                     total += getSystemService<StorageStatsManager>()?.getTotalBytes(it) ?: 0L
                     free += getSystemService<StorageStatsManager>()?.getFreeBytes(it) ?: 0L
                 } ?: run {
                     total += getSystemService<StorageStatsManager>()?.getTotalBytes(StorageManager.UUID_DEFAULT) ?: 0L
                     free += getSystemService<StorageStatsManager>()?.getFreeBytes(StorageManager.UUID_DEFAULT) ?: 0L
                 }
-            else validVolumes?.forEach {
+            else validVolumes.forEach {
                 total += it?.directoryCompat?.fileStore()?.totalSpace ?: 0L
                 free += it?.directoryCompat?.fileStore()?.usableSpace ?: 0L
             }
@@ -160,7 +166,7 @@ fun Context.getStoragePair(): Pair<Long, Long> {
 }
 
 private val StorageVolume.directoryCompat: Path?
-    @SuppressLint("DiscouragedPrivateApi")
+    @Suppress("DiscouragedPrivateApi")
     get() = Paths.get(if (atLeastR) directory?.absolutePath else {
         { javaClass.getDeclaredAccessibleMethod("getPath")?.invoke(this, emptyArray<Any>()) as String }.catchReturnNull()
     }).normalize()

@@ -1,3 +1,4 @@
+import org.jetbrains.kotlin.compose.compiler.gradle.ComposeFeatureFlag
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
 
@@ -9,37 +10,38 @@ plugins {
     id 'kotlin-parcelize'
     id 'com.google.devtools.ksp'
     id 'project-report'
-    id 'dev.zacsweers.moshix' version '0.28.0'
-    id 'com.github.ben-manes.versions' version '0.51.0'
+    id 'dev.zacsweers.moshix' version '0.29.0'
+    id 'com.github.ben-manes.versions' version '0.52.0'
     id 'com.getkeepsafe.dexcount' version '4.0.0'
+    //id 'com.github.sgtsilvio.gradle.android-retrofix' version '1.0.0'
     id 'androidx.baselineprofile'
 }
 
 android {
-    compileSdk 35
+    compileSdkPreview = 'Baklava'
 
     defaultConfig {
-        applicationId "com.example.infotest"
-        minSdk 21
-        targetSdk 35
-        versionCode 7
-        versionName "1.2.0"
+        applicationId = 'com.example.infotest'
+        minSdk = 21
+        targetSdkPreview = 'Baklava'
+        versionCode = 8
+        versionName = '1.2.1'
 
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-        vectorDrawables.useSupportLibrary true
+        testInstrumentationRunner = 'androidx.test.runner.AndroidJUnitRunner'
+        vectorDrawables.useSupportLibrary = true
 
         ndk {
             //noinspection ChromeOsAbiSupport
-            abiFilters "armeabi-v7a", "arm64-v8a"
+            abiFilters += [ 'armeabi-v7a', 'arm64-v8a' ]
         }
-        resourceConfigurations += ["zh"]
+        resourceConfigurations += [ 'zh' ]
     }
 
     buildTypes {
         release {
-            minifyEnabled true
-            shrinkResources true
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            minifyEnabled = true
+            shrinkResources = true
+            proguardFiles += [ getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro' ]
         }
     }
 
@@ -51,10 +53,10 @@ android {
     }
 
     compileOptions {
-        incremental true
-        coreLibraryDesugaringEnabled true
-        sourceCompatibility JavaVersion.VERSION_21
-        targetCompatibility JavaVersion.VERSION_21
+        incremental = true
+        coreLibraryDesugaringEnabled = true
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
     }
 
     kotlinOptions {
@@ -62,48 +64,53 @@ android {
         languageVersion = KotlinVersion.KOTLIN_2_2.version
         apiVersion = KotlinVersion.KOTLIN_2_2.version
         javaParameters = true
+        freeCompilerArgs += [ "-Xwhen-guards", "-Xjspecify-annotations=strict", "-Xtype-enhancement-improvements-strict-mode" ]
     }
 
-    buildFeatures {
-        compose true
-    }
+    buildFeatures.compose = true
 
     packaging {
         resources.excludes += '/META-INF/{AL2.0,LGPL2.1}'
-        resources.excludes += ['DebugProbesKt.bin']
+        resources.excludes += 'DebugProbesKt.bin'
         //resources.excludes += 'META-INF/versions/9/previous-compilation-data.bin'
     }
 
-    namespace 'com.example.infotest'
+    composeCompiler {
+        featureFlags = [ComposeFeatureFlag.PausableComposition]
+    }
+
+    namespace = 'com.example.infotest'
 
     testCoverage {
         jacocoVersion = '0.8.11'
     }
 
     lint {
-        abortOnError false
-        checkAllWarnings true
-        checkDependencies true
-        explainIssues true
-        showAll true
-        checkReleaseBuilds false
+        abortOnError = false
+        checkAllWarnings = true
+        checkDependencies = true
+        explainIssues = true
+        showAll = true
+        checkReleaseBuilds = false
     }
 }
 
 dependencies {
     baselineProfile projects.baselineprofile
-    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs_nio:2.1.3'
-    debugImplementation 'com.squareup.leakcanary:leakcanary-android:2.13'
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs_nio:2.1.5'
+    //retrofix 'net.sourceforge.streamsupport:android-retrofuture:1.7.4'
+    //retrofix 'net.sourceforge.streamsupport:android-retrostreams:1.7.4' // For Consumer conflicts
+    debugImplementation 'com.squareup.leakcanary:leakcanary-android:2.14'
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
     implementation 'com.louiscad.splitties:splitties-appctx:3.0.0'
-    implementation 'androidx.core:core-ktx:1.15.0'
-    implementation 'androidx.versionedparcelable:versionedparcelable:1.2.0'
-    implementation 'androidx.coordinatorlayout:coordinatorlayout:1.3.0-alpha02'
-    implementation 'androidx.fragment:fragment-compose:1.8.5'
-    implementation 'androidx.collection:collection:1.5.0-alpha06'
+    implementation 'androidx.core:core-ktx:1.16.0-alpha02'
+    implementation 'androidx.versionedparcelable:versionedparcelable:1.2.1'
+    implementation 'androidx.coordinatorlayout:coordinatorlayout:1.3.0'
+    implementation 'androidx.fragment:fragment-compose:1.8.6'
+    implementation 'androidx.collection:collection:1.5.0-rc01'
     implementation 'androidx.customview:customview:1.2.0-alpha02'
     implementation 'androidx.profileinstaller:profileinstaller:1.4.1'
-    implementation 'androidx.viewpager:viewpager:1.1.0-rc01'
+    implementation 'androidx.viewpager:viewpager:1.1.0'
     implementation 'androidx.privacysandbox.ads:ads-adservices:1.1.0-beta11'
     implementation "androidx.concurrent:concurrent-futures-ktx:$androidx_concurrent_future_version"
     implementation "androidx.compose.animation:animation:$compose_version"
@@ -114,31 +121,33 @@ dependencies {
     implementation "androidx.compose.foundation:foundation:$compose_version"
     implementation "androidx.compose.foundation:foundation-layout:$compose_version"
     implementation "com.google.accompanist:accompanist-permissions:$accompanist_version"
-    implementation 'androidx.exifinterface:exifinterface:1.4.0-alpha01'
+    implementation 'androidx.exifinterface:exifinterface:1.4.0'
     implementation "androidx.lifecycle:lifecycle-viewmodel-compose:$lifecycle_version"
-    implementation 'androidx.activity:activity-compose:1.10.0-beta01'
-    implementation 'androidx.window:window:1.4.0-alpha05'
+    implementation 'androidx.activity:activity-compose:1.10.1'
+    implementation 'androidx.window:window:1.4.0-beta02'
     implementation 'androidx.loader:loader:1.1.0'
     implementation "androidx.annotation:annotation:$androidx_annotation_version"
     implementation "androidx.annotation:annotation-experimental:$androidx_annotation_experimental_version"
     implementation "com.squareup.okio:okio:$okio_version"
-    implementation 'com.squareup.moshi:moshi:1.15.1'
+    implementation 'com.squareup.moshi:moshi:1.15.2'
     //noinspection GradleDependency
-    implementation 'com.tencent:mmkv:1.3.4' // 1.3.5 drop minSdk < 23 and armv7 support
+    implementation 'com.tencent:mmkv:1.3.12' // 2.0.0+ drop minSdk < 23 and armv7 support
     implementation 'com.getkeepsafe.relinker:relinker:1.4.5'
     //implementation 'com.guardsquare:proguard-retrace:7.4.1'
-    implementation 'com.huawei.hms:ads-identifier:3.4.75.301'
+    implementation 'com.huawei.hms:ads-identifier:3.4.77.301'
     implementation 'com.hihonor.mcs:ads-identifier:1.0.3.300'
     implementation 'com.google.firebase:firebase-installations:18.0.0'
     implementation 'com.google.android.gms:play-services-cronet:18.1.0'
-    implementation 'com.google.android.gms:play-services-ads-identifier:18.1.0'
+    implementation 'com.google.android.gms:play-services-ads-identifier:18.2.0'
     implementation 'com.google.android.gms:play-services-location:21.3.0'
     implementation 'com.google.android.gms:play-services-appset:16.1.0'
+    implementation 'com.google.android.gms:play-services-time:16.0.1'
     // AMap, BaiduLBS and so many other services need apply for key
     // Tencent could use basic location service without key.
-    implementation 'com.tencent.map.geolocation:TencentLocationSdk-openplatform:7.5.5.5'
-    implementation 'us.fatehi:pointlocation6709:4.2.1'
-    implementation 'org.apache.commons:commons-lang3:3.17.0'
+    //noinspection GradleDependency
+    implementation 'com.tencent.map.geolocation:TencentLocationSdk-openplatform:7.6.0'
+    implementation 'us.fatehi:pointlocation6709:4.2.2'
+    //implementation 'org.apache.commons:commons-lang3:3.17.0'
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:$coroutine_version"
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-play-services:$coroutine_version"
     implementation 'com.github.instacart:truetime-android:4.0.0.alpha'

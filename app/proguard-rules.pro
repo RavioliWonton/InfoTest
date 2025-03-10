@@ -36,9 +36,6 @@
 -keep public class com.tencent.location.**{
     public protected *;
 }
--keepclasseswithmembernames class * {
-    native <methods>;
-}
 -keep class c.t.**{*;}
 -keep class com.tencent.map.geolocation.**{*;}
 -keep class com.tencent.tencentmap.lbssdk.service.*{*;}

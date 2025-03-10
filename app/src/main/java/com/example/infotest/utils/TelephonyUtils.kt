@@ -5,6 +5,7 @@ package com.example.infotest.utils
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.Build
 import android.telephony.CarrierConfigManager
 import android.telephony.CellInfo
 import android.telephony.CellInfoCdma
@@ -17,6 +18,7 @@ import android.telephony.SmsManager
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
 import androidx.activity.ComponentActivity
+import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
 import androidx.annotation.WorkerThread
 import androidx.collection.objectListOf
@@ -34,6 +36,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asExecutor
 
 @Suppress("unused")
+@RequiresApi(Build.VERSION_CODES.Q)
 fun ComponentActivity.getCellInfoAsync(callback: (MutableList<CellInfo>) -> Unit) {
     if (PermissionChecker.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PermissionChecker.PERMISSION_GRANTED) return
     lifecycle.addObserver(LifecycleEventObserver { _, event ->
@@ -46,6 +49,7 @@ fun ComponentActivity.getCellInfoAsync(callback: (MutableList<CellInfo>) -> Unit
     })
 }
 @Composable
+@RequiresApi(Build.VERSION_CODES.Q)
 fun GetCellInfoComposeAsync(callback: (MutableList<CellInfo>) -> Unit) {
     val lifecycleOwner = rememberUpdatedState(newValue = LocalLifecycleOwner.current)
     val context = LocalContext.current
@@ -108,8 +112,7 @@ fun Context.getNetworkOperatorNameCompat() = { if (atLeastQ) getSystemService<Ca
     (if (atLeastU) manager.getConfig(CarrierConfigManager.KEY_CARRIER_NAME_STRING) else manager.config)
         ?.takeIf { CarrierConfigManager.isConfigForIdentifiedCarrier(it) && it.getBoolean(CarrierConfigManager.KEY_CARRIER_NAME_OVERRIDE_BOOL) }
         ?.getString(CarrierConfigManager.KEY_CARRIER_NAME_STRING)
-    }
-    else getSystemService<TelephonyManager>()?.let { manager ->
+    } else getSystemService<TelephonyManager>()?.let { manager ->
         if (atLeastO) manager.carrierConfig?.takeIf { it.getBoolean("carrier_name_override_bool") }?.getString("carrier_name_string")
         else manager.networkOperatorName
     }
@@ -136,7 +139,7 @@ fun Context.getDbmCompat() = { getSystemService<TelephonyManager>()?.allCellInfo
 
 val Collection<CellInfo?>.lastDbmCompat: Int
     get() = { mapNotNull {
-        (when {
+        when {
             atLeastR -> it?.cellSignalStrength
             it is CellInfoGsm -> it.cellSignalStrength
             it is CellInfoCdma -> it.cellSignalStrength
@@ -145,6 +148,6 @@ val Collection<CellInfo?>.lastDbmCompat: Int
             it is CellInfoLte -> it.cellSignalStrength
             atLeastQ && it is CellInfoNr -> it.cellSignalStrength
             else -> null
-        })?.dbm
+        }?.dbm
     }.lastOrNull { it != if (atLeastQ) CellInfo.UNAVAILABLE else Int.MIN_VALUE }
 }.catchReturn(-1)

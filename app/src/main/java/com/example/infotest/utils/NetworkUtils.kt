@@ -3,6 +3,7 @@
 package com.example.infotest.utils
 
 import android.Manifest
+import android.app.admin.DevicePolicyManager
 import android.content.Context
 import android.location.LocationManager
 import android.net.ConnectivityManager
@@ -11,6 +12,7 @@ import android.net.LinkProperties
 import android.net.NetworkCapabilities
 import android.net.NetworkInfo
 import android.net.NetworkRequest
+import android.net.wifi.WifiConfiguration
 import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.os.Build
@@ -75,7 +77,7 @@ fun ComponentActivity.startWifiScan() {
 fun StartWifiScan() {
     val lifecycleOwner = rememberUpdatedState(newValue = LocalLifecycleOwner.current)
     val context = LocalContext.current
-    val wifiManager = context.getSystemService<WifiManager>()
+    val wifiManager = context.applicationContext.getSystemService<WifiManager>()
     DisposableEffect(key1 = lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_START)  {
@@ -91,53 +93,54 @@ fun StartWifiScan() {
     }
 }
 
-@RequiresPermission(Manifest.permission.ACCESS_NETWORK_STATE)
-fun ComponentActivity.registerWifiCallback(onCapabilitiesChanged: (network: android.net.Network, networkCapabilities: NetworkCapabilities) -> Unit,
-                                           onLinkPropertiesChanged: (network: android.net.Network, linkProperties: LinkProperties) -> Unit) =
-    lifecycle.addObserver(processWifiCallBackObserver(applicationContext.getSystemService<ConnectivityManager>(), onCapabilitiesChanged, onLinkPropertiesChanged))
-@Composable
-@RequiresPermission(Manifest.permission.ACCESS_NETWORK_STATE)
-fun RegisterWifiCallback(onCapabilitiesChanged: (network: android.net.Network, networkCapabilities: NetworkCapabilities) -> Unit,
-                         onLinkPropertiesChanged: (network: android.net.Network, linkProperties: LinkProperties) -> Unit) {
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    lifecycleOwner.lifecycle.addObserver(processWifiCallBackObserver(context.applicationContext.getSystemService<ConnectivityManager>(), onCapabilitiesChanged, onLinkPropertiesChanged))
-}
-@RequiresPermission(Manifest.permission.ACCESS_NETWORK_STATE)
-private fun processWifiCallBackObserver(manager: ConnectivityManager?, onCapabilitiesChanged: (network: android.net.Network, networkCapabilities: NetworkCapabilities) -> Unit,
-                                        onLinkPropertiesChanged: (network: android.net.Network, linkProperties: LinkProperties) -> Unit) = LifecycleEventObserver { _, event ->
-    val callback = if (atLeastS) object : ConnectivityManager.NetworkCallback(FLAG_INCLUDE_LOCATION_INFO) {
+private val networkCallback by lazy {
+    if (atLeastS) object : ConnectivityManager.NetworkCallback(FLAG_INCLUDE_LOCATION_INFO) {
         override fun onCapabilitiesChanged(network: android.net.Network, networkCapabilities: NetworkCapabilities) {
             super.onCapabilitiesChanged(network, networkCapabilities)
-            onCapabilitiesChanged.invoke(network, networkCapabilities)
+            if (atLeastQ && networkCapabilities.transportInfo is WifiInfo)
+                GlobalApplication.currentWifiCapabilities = networkCapabilities.transportInfo as? WifiInfo
         }
         override fun onLinkPropertiesChanged(network: android.net.Network, linkProperties: LinkProperties) {
             super.onLinkPropertiesChanged(network, linkProperties)
-            onLinkPropertiesChanged.invoke(network, linkProperties)
+            GlobalApplication.currentWifiLinkProperties = linkProperties
         }
     } else object : ConnectivityManager.NetworkCallback() {
         override fun onCapabilitiesChanged(network: android.net.Network, networkCapabilities: NetworkCapabilities) {
             super.onCapabilitiesChanged(network, networkCapabilities)
-            onCapabilitiesChanged.invoke(network, networkCapabilities)
+            if (atLeastQ && networkCapabilities.transportInfo is WifiInfo)
+                GlobalApplication.currentWifiCapabilities = networkCapabilities.transportInfo as? WifiInfo
         }
         override fun onLinkPropertiesChanged(network: android.net.Network, linkProperties: LinkProperties) {
             super.onLinkPropertiesChanged(network, linkProperties)
-            onLinkPropertiesChanged.invoke(network, linkProperties)
+            GlobalApplication.currentWifiLinkProperties = linkProperties
         }
     }
-    if (event == Lifecycle.Event.ON_START) {
-        if (atLeastT) manager?.registerBestMatchingNetworkCallback(wifiNetworkRequest, callback,
-            HandlerCompat.createAsync(Looper.myLooper()?.takeIf { it != Looper.getMainLooper() } ?: Looper.getMainLooper()))
-        else manager?.registerNetworkCallback(wifiNetworkRequest, callback)
-    }
-    if (event == Lifecycle.Event.ON_STOP) manager?.unregisterNetworkCallback(callback)
 }
+@RequiresPermission(Manifest.permission.ACCESS_NETWORK_STATE)
+fun ComponentActivity.registerWifiCallback() =
+    lifecycle.addObserver(processWifiCallBackObserver(applicationContext.getSystemService<ConnectivityManager>()))
+@Composable
+@RequiresPermission(Manifest.permission.ACCESS_NETWORK_STATE)
+fun RegisterWifiCallback() {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    lifecycleOwner.lifecycle.addObserver(processWifiCallBackObserver(context.applicationContext.getSystemService<ConnectivityManager>()))
+}
+@RequiresPermission(Manifest.permission.ACCESS_NETWORK_STATE)
+private fun processWifiCallBackObserver(manager: ConnectivityManager?) = LifecycleEventObserver { _, event -> emitException {
+    if (event == Lifecycle.Event.ON_START) {
+        if (atLeastT) manager?.registerBestMatchingNetworkCallback(wifiNetworkRequest, networkCallback,
+            HandlerCompat.createAsync(Looper.myLooper()?.takeIf { it != Looper.getMainLooper() } ?: Looper.getMainLooper()))
+        else manager?.registerNetworkCallback(wifiNetworkRequest, networkCallback)
+    }
+    if (event == Lifecycle.Event.ON_STOP) manager?.unregisterNetworkCallback(networkCallback)
+} }
 
 @RequiresPermission(Manifest.permission.ACCESS_NETWORK_STATE)
 fun Context.isNetworkAvailable(): Boolean = { applicationContext.getSystemService<ConnectivityManager>()?.let { manager ->
     (atLeastM && listOf(NetworkCapabilities.NET_CAPABILITY_INTERNET, NetworkCapabilities.NET_CAPABILITY_VALIDATED)
         .all { manager.getNetworkCapabilities(manager.activeNetwork)?.hasCapability(it) == true })
-            || manager.activeNetworkInfo?.isConnected == true
+    || manager.activeNetworkInfo?.isConnected == true
 }}.catchFalse()
 fun NetworkCapabilities.isValidateNetwork(@IntRange(NetworkCapabilities.TRANSPORT_CELLULAR.toLong(), 9L) type: Int) =
     mutableObjectListOf(NetworkCapabilities.NET_CAPABILITY_INTERNET).apply { if (atLeastM) add(NetworkCapabilities.NET_CAPABILITY_VALIDATED) }.all { hasCapability(it) }
@@ -179,6 +182,8 @@ val currentNetworkTimeInstant: Instant = {
         SystemClock.currentNetworkTimeClock().instant()
     else if (GlobalApplication.trueTime.hasTheTime())
         GlobalApplication.trueTime.nowTrueOnly().toInstant()
+    else if (appCtx.isGoogleServiceAvailable() && GlobalApplication.googleTime != null)
+        GlobalApplication.googleTime
     else if (atLeastQ && appCtx.getSystemService<LocationManager>()
             ?.isProviderEnabled(LocationManager.GPS_PROVIDER) == true)
         SystemClock.currentGnssTimeClock().instant()
@@ -210,37 +215,40 @@ fun Context.getNetworkInfo(): Network {
     )
 }
 
+private fun ConnectivityManager.getFirstValidateWifiNetworkOrNull() =
+    allNetworks.firstOrNull { getNetworkCapabilities(it)?.isValidateNetwork(NetworkCapabilities.TRANSPORT_WIFI) == true }
+
 @RequiresPermission(allOf = [Manifest.permission.ACCESS_WIFI_STATE, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_NETWORK_STATE], conditional = true)
 private fun Context.getWifiConnectionInfo() = {
     if (atLeastS) GlobalApplication.currentWifiCapabilities
-    else if (atLeastQ) applicationContext.getSystemService<ConnectivityManager>()?.let { manager ->
-        manager.allNetworks.mapNotNull { manager.getNetworkCapabilities(it) }
-            .firstOrNull { it.isValidateNetwork(NetworkCapabilities.TRANSPORT_WIFI) }?.transportInfo as WifiInfo?
-    }
-    else applicationContext.getSystemService<WifiManager>()?.connectionInfo
+    else if (atLeastQ) applicationContext.getSystemService<ConnectivityManager>()?.let {
+        it.getNetworkCapabilities(it.getFirstValidateWifiNetworkOrNull())?.transportInfo as WifiInfo?
+    } else applicationContext.getSystemService<WifiManager>()?.connectionInfo
 }.catchReturnNull(applicationContext.getSystemService<WifiManager>()?.connectionInfo)
 
 @Suppress("NewApi")
 @RequiresPermission(Manifest.permission.ACCESS_NETWORK_STATE)
-private fun Context.getWifiLinkInetAddresses() = (GlobalApplication.currentWifiLinkProperties ?: applicationContext.getSystemService<ConnectivityManager>()?.let { manager ->
-    manager.getLinkProperties(manager.allNetworks.firstOrNull { manager.getNetworkCapabilities(it)?.isValidateNetwork(NetworkCapabilities.TRANSPORT_WIFI) == true })
-})?.linkAddresses?.mapNotNull { it.address }?.filter { !it.isLoopbackAddress }.takeIf { !it.isNullOrEmpty() }?.asObjectList()
+private fun Context.getWifiLinkInetAddresses() = (GlobalApplication.currentWifiLinkProperties
+    ?: applicationContext.getSystemService<ConnectivityManager>()?.let { it.getLinkProperties(it.getFirstValidateWifiNetworkOrNull()) })
+        ?.linkAddresses?.mapNotNull { it.address }?.filterNot { it.isLoopbackAddress }.takeIf { !it.isNullOrEmpty() }?.asObjectList()
     ?: getWifiConnectionInfo()?.let { info -> Formatter.formatIpAddress(info.ipAddress).takeIf { InetAddresses.isNumericAddress(it) }
         ?.let { objectListOf(InetAddresses.parseNumericAddress(it)) } }
 
 @Suppress("HardwareIds")
 @RequiresPermission(allOf = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_WIFI_STATE, Manifest.permission.READ_EXTERNAL_STORAGE, "android.permission.LOCAL_MAC_ADDRESS"], conditional = true)
 fun Context.getWifiMac(): String = {(
-        if (atLeastN) (NetworkInterface.getNetworkInterfaces().asSequence().firstOrNull { it.name.equals("wlan0", true) }
-            ?: NetworkInterface.getByInetAddress(getWifiLinkInetAddresses()?.firstOrNull()))?.hardwareAddress.formatMac()
-        else if (atLeastM) listOf("/sys/class/net/wlan0/address", "/sys/class/net/eth0/address").filter { Path(it).exists() }
-            .firstNotNullOfOrNull { address -> execCommand("cat", address)?.bufferedReader()?.use { it.readLine() } }
-        else getWifiConnectionInfo()?.macAddress)?.takeIf { it.isNotBlank() && it != "02:00:00:00:00:00" }
+    if (atLeastN) (NetworkInterface.getNetworkInterfaces().asSequence().firstOrNull { it.name.equals("wlan0", true) }
+        ?: NetworkInterface.getByInetAddress(getWifiLinkInetAddresses()?.firstOrNull()))?.hardwareAddress.formatMac()
+        ?: { getSystemService<DevicePolicyManager>()?.getWifiMacAddress(null) }.catchEmpty()
+    else if (atLeastM) listOf("/sys/class/net/wlan0/address", "/sys/class/net/eth0/address").filter { Path(it).exists() }
+        .firstNotNullOfOrNull { address -> execCommand("cat", address)?.bufferedReader()?.use { it.readLine() } }
+    else getWifiConnectionInfo()?.macAddress)?.takeIf { it.isNotBlank() && it != "02:00:00:00:00:00" }
+    ?: applicationContext.getSystemService<WifiManager>()?.configuredNetworks?.firstOrNull { it.status == WifiConfiguration.Status.CURRENT }?.BSSID.orEmpty()
 }.catchEmpty()
 
 @OptIn(ExperimentalStdlibApi::class)
-private fun ByteArray?.formatMac(): String = {
+private fun ByteArray?.formatMac(): String? = {
     takeIf { this?.size == 6 }?.toHexString(HexFormat { bytes.byteSeparator = ":" })
-}.catchEmpty()
+}.catchReturnNull()
 
 val UNKNOWN_SSID = if(atLeastR) WifiManager.UNKNOWN_SSID else "<unknown ssid>"

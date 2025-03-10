@@ -12,6 +12,7 @@ import android.net.Uri
 import android.os.BaseBundle
 import android.os.Build
 import android.os.ext.SdkExtensions
+import androidx.annotation.AnyThread
 import androidx.annotation.CheckResult
 import androidx.annotation.ChecksSdkIntAtLeast
 import androidx.annotation.IntRange
@@ -53,6 +54,7 @@ object Constants {
     const val LASTLOGINTAG = "lastLogin"
     const val GPSTAG = "gps"
     const val DBMTAG = "dbm"
+    const val GNSSTIMETAG = "gnssTime"
     const val WIFICAPABILITIESTAG = "wifiCapabilities"
     const val WIFIPROPERTIESTAG = "wifiProperties"
     const val ADDRESSTAG = "address"
@@ -104,7 +106,11 @@ val atLeastS = buildBetween(Build.VERSION_CODES.S)
 val atLeastT = buildBetween(Build.VERSION_CODES.TIRAMISU)
 @ChecksSdkIntAtLeast(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
 val atLeastU = buildBetween(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
-// Cannot
+@ChecksSdkIntAtLeast(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+val atLeastV = buildBetween(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+@ChecksSdkIntAtLeast(Build.VERSION_CODES.BAKLAVA)
+val atLeastB = buildBetween(Build.VERSION_CODES.BAKLAVA)
+// Has no effect
 @CheckResult
 @ChecksSdkIntAtLeast
 @RequiresApi(Build.VERSION_CODES.R)
@@ -118,7 +124,7 @@ fun Int?.toBoolean(): Boolean? = (this != null).then((this!! > 0).then(true) == 
 @OptIn(ExperimentalContracts::class)
 inline fun emitException(vararg neededThrowExceptions: Class<out Exception> = emptyArray(), block: () -> Unit) {
     contract {
-        callsInPlace(block, InvocationKind.EXACTLY_ONCE)
+        callsInPlace(block, InvocationKind.AT_MOST_ONCE)
     }
 
     try {
@@ -132,7 +138,7 @@ inline fun emitException(vararg neededThrowExceptions: Class<out Exception> = em
 @OptIn(ExperimentalContracts::class)
 inline fun <reified T: Any> (() -> T?).catchReturn(defaultValue: T, vararg neededThrowExceptions: Class<out Exception> = emptyArray()): T {
     contract {
-        callsInPlace(this@catchReturn, InvocationKind.EXACTLY_ONCE)
+        callsInPlace(this@catchReturn, InvocationKind.AT_MOST_ONCE)
         returnsNotNull()
     }
 
@@ -147,7 +153,7 @@ inline fun <reified T: Any> (() -> T?).catchReturn(defaultValue: T, vararg neede
 @OptIn(ExperimentalContracts::class)
 inline fun <reified T> (() -> T).catchReturnNull(defaultValue: T? = null, vararg neededThrowExceptions: Class<out Exception> = emptyArray()): T? {
     contract {
-        callsInPlace(this@catchReturnNull, InvocationKind.EXACTLY_ONCE)
+        callsInPlace(this@catchReturnNull, InvocationKind.AT_MOST_ONCE)
         returns(null) implies (defaultValue == null)
     }
 
@@ -232,15 +238,15 @@ class ObjectListAdapterFactory: JsonAdapter.Factory {
     }.catchReturnNull()
 }
 
-fun getClassOrNull(className: String) = { ClassLoader.getSystemClassLoader().loadClass(className) }.catchReturnNull()
+@AnyThread
+fun getClassOrNull(className: String) =
+    { (Thread.currentThread().contextClassLoader ?: ClassLoader.getSystemClassLoader()).loadClass(className) }.catchReturnNull()
 @SafeVarargs
 fun Class<*>.getAccessibleMethod(name: String, vararg parameterTypes: Class<*> = emptyArray()): Method? =
     getMethod(name, *parameterTypes).apply { isAccessible = true }
-
 @SafeVarargs
 fun Class<*>.getDeclaredAccessibleMethod(name: String, vararg parameterTypes: Class<*> = emptyArray()): Method? =
     getDeclaredMethod(name, *parameterTypes).apply { isAccessible = true }
-
 @SafeVarargs
 fun Class<*>.getAccessibleConstructor(isDeclared: Boolean = false, vararg parameterTypes: Class<*> = emptyArray()): Constructor<out Any>? =
     (if (isDeclared) getDeclaredConstructor(*parameterTypes) else getConstructor(*parameterTypes)).apply { isAccessible = true }
@@ -278,6 +284,7 @@ fun BaseBundle.getBooleanArrayCompat(key: String, defaultValue: BooleanArray = b
 @Suppress("NewApi")
 @SafeVarargs
 fun Array<String>?.anyExistNoFollowingLink(vararg subPath: String = arrayOf()): Boolean = anyExist(option = LinkOption.NOFOLLOW_LINKS, subPath = subPath)
+@SafeVarargs
 fun Array<String>?.anyExist(option: LinkOption? = null, vararg subPath: String = arrayOf()): Boolean =
     this?.any { { if (option!= null) Path(it, *subPath).exists(option) else Path(it, *subPath).exists() }.catchFalse() } == true
 
@@ -289,7 +296,7 @@ tailrec fun <T: Context> Context.unwrapUntil(condition: Context.() -> T?): T? = 
 @SafeVarargs
 fun Context.unwrapUntilAnyOrNull(vararg type: Class<out Context>) =
     unwrapUntil { if (type.any { it.isInstance(this) }) this@unwrapUntilAnyOrNull else null }
-fun Context.findActivity() = unwrapUntil { takeIf { it is Activity } as Activity }
+fun Context.findActivity() = unwrapUntil { takeIf { it is Activity && !it.isDestroyed } as Activity }
 
 /*fun String?.retrace(mappingFile: File, isVerbose: Boolean = true) = run {
     Writer.nullWriter().buffered().use {

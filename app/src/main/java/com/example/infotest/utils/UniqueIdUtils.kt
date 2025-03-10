@@ -20,6 +20,7 @@ import android.os.Parcel
 import android.provider.Settings
 import androidx.annotation.RequiresPermission
 import androidx.collection.objectListOf
+import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
 import androidx.core.content.pm.PackageInfoCompat
 import androidx.core.net.toUri
@@ -46,21 +47,18 @@ import kotlin.uuid.toJavaUuid
 
 @OptIn(DelicateCoroutinesApi::class)
 fun Context.getGAIDFallback() {
-    if (GlobalApplication.gaid.isNullOrBlank() && com.huawei.hms.ads.identifier.AdvertisingIdClient.isAdvertisingIdAvailable(applicationContext))
-        GlobalScope.launch(noExceptionContext) {
-            GlobalApplication.gaid = com.huawei.hms.ads.identifier.AdvertisingIdClient.getAdvertisingIdInfo(applicationContext).id
-        }.invokeOnCompletion { cancel -> if (cancel !is CancellationException && GlobalApplication.gaid.isNullOrBlank())
-            GlobalScope.launch(noExceptionContext) { GlobalApplication.gaid = getOAID() }.invokeOnCompletion { cancel2 ->
-                if (cancel2 !is CancellationException && GlobalApplication.gaid.isNullOrBlank()) GlobalScope.launch(noExceptionContext) {
-                    // http://www.cnadid.cn/guide.html
-                    GlobalApplication.gaid = Settings.System.getString(contentResolver, "ZHVzY2Lk").ifBlank {
-                        // https://github.com/shuzilm-open-source/Get_Oaid_CNAdid/blob/master/CNAdid_source/CNAdidHelper.java#L48
-                        getSharedPreferences("${packageName}_dna", Context.MODE_PRIVATE).getString("ZHVzY2Lk", null) ?:
-                        Path(Environment.getExternalStorageDirectory().path, "Android/ZHVzY2Lk").takeIf { it.exists() }?.bufferedReader()?.use { it.readLine() }
-                    }
-                }.invokeOnCompletion { cancel3 -> if (cancel3 !is CancellationException && GlobalApplication.gaid.isNullOrBlank())
-                    emitException { GlobalApplication.gaid = Settings.Secure.getString(contentResolver, "advertising_id") }
+    if (GlobalApplication.gaid.isNullOrBlank())
+        GlobalScope.launch(noExceptionContext) { GlobalApplication.gaid = getOAID() }.invokeOnCompletion { cancel2 ->
+            if (cancel2 !is CancellationException && GlobalApplication.gaid.isNullOrBlank()) GlobalScope.launch(noExceptionContext) {
+                // http://www.cnadid.cn/guide.html
+                GlobalApplication.gaid = Settings.System.getString(contentResolver, "ZHVzY2Lk").ifBlank {
+                    // https://github.com/shuzilm-open-source/Get_Oaid_CNAdid/blob/master/CNAdid_source/CNAdidHelper.java#L48
+                    getSharedPreferences("${packageName}_dna", Context.MODE_PRIVATE).getString("ZHVzY2Lk", null) ?:
+                    (if(atLeastQ) Path(filesDir.path, "ZHVzY2Lk") else Path(Environment.getExternalStorageDirectory().path, "Android/ZHVzY2Lk"))
+                        .takeIf { it.exists() }?.bufferedReader()?.use { it.readLine() }
                 }
+            }.invokeOnCompletion { cancel3 -> if (cancel3 !is CancellationException && GlobalApplication.gaid.isNullOrBlank())
+                emitException { GlobalApplication.gaid = Settings.Secure.getString(contentResolver, "advertising_id") }
             }
         }
 }
@@ -213,12 +211,11 @@ suspend fun Context.getOAID(): String? = when {
 }
 
 private suspend fun Context.getOAIDOfficially() = withContext(noExceptionContext) {
-    fun startService(intent: Intent) = if (atLeastQ) startForegroundService(intent) else this@getOAIDOfficially.startService(intent)
     packageManager.getPackageInfoCompat("com.mdid.msa")?.let {
-        startService(Intent("com.bun.msa.action.start.service")
+        ContextCompat.startForegroundService(this@getOAIDOfficially, Intent("com.bun.msa.action.start.service")
             .setClassName("com.mdid.msa", "com.mdid.msa.service.MsaKlService")
             .putExtra("com.bun.msa.param.pkgname", packageName)
-            .putExtra("com.bun.msa.param.runinset", true))?.let {
+            .putExtra("com.bun.msa.param.runinset", true)).let {
                 processIBinderFromOAIDService(Intent("com.bun.msa.action.bindto.service")
                     .setClassName("com.mdid.msa", "com.mdid.msa.service.MsaIdService")
                     .putExtra("com.bun.msa.param.pkgname", packageName)) {

@@ -5,6 +5,8 @@ import android.location.Geocoder
 import android.net.wifi.WifiInfo
 import android.os.Build
 import android.os.Bundle
+import android.view.Surface
+import android.view.View
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -26,7 +28,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.core.app.ActivityCompat
+import androidx.core.content.getSystemService
+import androidx.core.hardware.display.DisplayManagerCompat
 import androidx.core.location.LocationCompat
+import androidx.core.view.ViewCompat
 import androidx.lifecycle.lifecycleScope
 import com.example.infotest.ui.theme.InfoTestTheme
 import com.example.infotest.utils.GetCellInfoComposeAsync
@@ -34,6 +39,7 @@ import com.example.infotest.utils.GetLocationAsyncComposable
 import com.example.infotest.utils.RegisterWifiCallback
 import com.example.infotest.utils.StartWifiScan
 import com.example.infotest.utils.atLeastQ
+import com.example.infotest.utils.atLeastS
 import com.example.infotest.utils.atLeastT
 import com.example.infotest.utils.createExtensionModel
 import com.example.infotest.utils.currentNetworkTimeInstant
@@ -104,11 +110,8 @@ class MainActivity : ComponentActivity() {
                         if (permission.allPermissionsGranted) {
                             TencentLocationManager.setUserAgreePrivacy(true)
                             StartWifiScan()
-                            RegisterWifiCallback(onCapabilitiesChanged = { _, networkCapabilities ->
-                                if (atLeastQ && networkCapabilities.transportInfo is WifiInfo)
-                                    GlobalApplication.currentWifiCapabilities = networkCapabilities.transportInfo as WifiInfo
-                            }, onLinkPropertiesChanged = { _, linkProperties -> GlobalApplication.currentWifiLinkProperties = linkProperties })
-                            GetCellInfoComposeAsync { GlobalApplication.dbm = it.lastDbmCompat }
+                            RegisterWifiCallback()
+                            if (atLeastQ) GetCellInfoComposeAsync { GlobalApplication.dbm = it.lastDbmCompat }
                             GetLocationAsyncComposable { location ->
                                 @Suppress("DEPRECATION")
                                 GlobalApplication.gps = GPS(location.latitude.toString(), location.longitude.toString(),

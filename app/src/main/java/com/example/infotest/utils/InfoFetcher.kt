@@ -4,7 +4,6 @@ package com.example.infotest.utils
 
 import android.Manifest
 import android.accounts.AccountManager
-import android.annotation.SuppressLint
 import android.app.ActivityManager
 import android.content.ContentResolver
 import android.content.ContentValues
@@ -69,6 +68,7 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.future.asCompletableFuture
+import kotlinx.coroutines.future.future
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import splitties.init.appCtx
@@ -121,7 +121,7 @@ private fun ComponentActivity.getDeviceInfo(): DeviceInfo {
     val sdCardInfo = getSDCardPair()
     val metric = WindowMetricsCalculator.getOrCreate().computeCurrentWindowMetrics(this)
     val insets = (ViewCompat.getRootWindowInsets(window.decorView) ?:
-        if (atLeastR) WindowInsetsCompat.toWindowInsetsCompat(getSystemService<WindowManager>()!!.currentWindowMetrics.getWindowInsets(), window.decorView)
+        if (atLeastR) WindowInsetsCompat.toWindowInsetsCompat(getSystemService<WindowManager>()!!.currentWindowMetrics.windowInsets, window.decorView)
         else WindowInsetsCompat.CONSUMED).getInsets(WindowInsetsCompat.Type.systemBars())
     val address = {
         if (atLeastT) GlobalApplication.address
@@ -150,10 +150,10 @@ private fun ComponentActivity.getDeviceInfo(): DeviceInfo {
             isUsingVpn = {
                 NetworkInterface.getNetworkInterfaces().asSequence().filter { it?.isUp == true }.any { iter ->
                     listOf("tun", "ppp", "pptp").any { iter.name.startsWith(it, ignoreCase = true) } } ||
-                        if (atLeastN) connectivityManager?.getNetworkCapabilities(connectivityManager.activeNetwork)
-                            ?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
-                        else connectivityManager?.allNetworks?.mapNotNull { connectivityManager.getNetworkCapabilities(it) }
-                            ?.any { it.isValidateNetwork(NetworkCapabilities.TRANSPORT_VPN) } == true
+                if (atLeastN) connectivityManager?.getNetworkCapabilities(connectivityManager.activeNetwork)
+                    ?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+                else connectivityManager?.allNetworks?.mapNotNull { connectivityManager.getNetworkCapabilities(it) }
+                    ?.any { it.isValidateNetwork(NetworkCapabilities.TRANSPORT_VPN) } == true
             }.catchFalse().toString(),
             language = getSystemDefaultLocale().language.orEmpty(), localeDisplayLanguage = getSystemDefaultLocale().displayLanguage.orEmpty(),
             localeISO3Country = getSystemDefaultLocale().isO3Country.orEmpty(), localeISO3Language = getSystemDefaultLocale().isO3Language.orEmpty(),
@@ -213,13 +213,12 @@ private fun ComponentActivity.getDeviceInfo(): DeviceInfo {
         }.catchEmpty(),
         deviceInfo = Build.MODEL.takeIf { it != Build.UNKNOWN }.orEmpty(),
         osType = "android", osVersion = Build.VERSION.RELEASE.takeIf { it != Build.UNKNOWN }.orEmpty(),
-        ip = {
-            lifecycleScope.async(noExceptionContext) {
-                "https://api.ipify.org".getResponseString(method = RequestMethod.GET)
-            }.asCompletableFuture().get()
-            /*Scanner(URL("https://api.ipify.org").openStream(), StandardCharsets.UTF_8.name())
-                .useDelimiter("\\A").use { it.hasNext().then(it.next()) }*/
-        }.catchEmpty(),
+        ip = { lifecycleScope.future(noExceptionContext) {
+            "https://api.ipify.org".getResponseString(method = RequestMethod.GET)
+        }.join() }.catchEmpty()
+            /*{ Scanner(URL("https://api.ipify.org").openStream(), StandardCharsets.UTF_8.name())
+                .useDelimiter("\\A").use { it.hasNext().then(it.next()) }
+        }.catchEmpty()*/,
         memory = {
             ActivityManager.MemoryInfo().apply {
                 getSystemService<ActivityManager>()?.getMemoryInfo(this)
@@ -264,14 +263,15 @@ private fun ComponentActivity.getDeviceInfo(): DeviceInfo {
                     ?.filter { SubscriptionManager.isValidSubscriptionId(it.subscriptionId) }
                     ?.mapNotNull { telephonyManager?.getImeiCompat(it.simSlotIndex).orEmpty() }
                 else if (atLeastLM) getSystemService<SubscriptionManager>()?.activeSubscriptionInfoList
-                    ?.mapNotNull { it.simSlotIndex }?.ifEmpty { listOf(SubscriptionManagerCompat.getSlotIndex(getDefaultSubscriptionId())) }
+                    ?.mapNotNull { it.simSlotIndex }?.filter { it != -1 /*SubscriptionManager.INVALID_SIM_SLOT_INDEX*/ }
+                    ?.ifEmpty { listOf(SubscriptionManagerCompat.getSlotIndex(getDefaultSubscriptionId())) }
                     ?.map { telephonyManager?.getImeiCompat(it).orEmpty() }
                 else imeiHistoryFallback)?.filter { it.isBlank() }?.toTypedArray()
         }.catchReturn(imeiHistoryFallback.toTypedArray())
     )
 }
 
-@SuppressLint("QueryPermissionsNeeded")
+@Suppress("QueryPermissionsNeeded")
 private fun Context.getAppList(): List<App> = {
     (if (atLeastT) packageManager.getInstalledPackages(PackageManager.PackageInfoFlags.of(PackageManager.MATCH_UNINSTALLED_PACKAGES.toLong()))
     else packageManager.getInstalledPackages(if (atLeastN) PackageManager.MATCH_UNINSTALLED_PACKAGES
@@ -440,7 +440,6 @@ fun ExtensionModel.toJson(): String = Moshi.Builder().add(ObjectListAdapterFacto
     .adapter(ExtensionModel::class.java).nullSafe().lenient()
     .toJson(this)
 
-@SuppressLint("NewApi") // probably lint bug
 @RequiresPermission.Write(RequiresPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE, conditional = true))
 fun String?.saveFileToDownload(fileName: String, contentResolver: ContentResolver = appCtx.contentResolver) {
     val buffer = ByteBuffer.wrap(this.orEmpty().encodeToByteArray()).asReadOnlyBuffer()

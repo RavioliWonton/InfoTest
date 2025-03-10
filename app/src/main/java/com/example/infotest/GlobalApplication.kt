@@ -26,6 +26,7 @@ import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.common.GoogleApiAvailabilityLight
 import com.google.android.gms.net.CronetProviderInstaller
 import com.google.android.gms.security.ProviderInstaller
+import com.google.android.gms.time.TrustedTime
 import com.google.firebase.installations.FirebaseInstallations
 import com.instacart.truetime.time.TrueTimeImpl
 import com.instacart.truetime.time.TrueTimeParameters
@@ -33,12 +34,15 @@ import com.tencent.map.geolocation.TencentLocationManagerOptions
 import com.tencent.mmkv.MMKV
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import org.conscrypt.Conscrypt
 import splitties.init.appCtx
 import java.security.Security
+import java.time.Instant
 
 class GlobalApplication: Application() {
 
@@ -52,6 +56,7 @@ class GlobalApplication: Application() {
         MMKV.initialize(applicationContext, ContextCompat.getNoBackupFilesDir(this)?.absolutePath + Constants.mmkvDefaultRoute) {
             ReLinker.recursively().loadLibrary(applicationContext, it)
         }
+        //TencentLocationManagerOptions.setExtraKey("TencentMapDemo,MYUH4-5J3J4-Y7Z52-3XNSL-YT6SR")
         TencentLocationManagerOptions.setDebuggable(isDebug)
         if (isGoogleServiceAvailable()) {
             ProviderInstaller.installIfNeededAsync(this, object : ProviderInstaller.ProviderInstallListener {
@@ -74,7 +79,13 @@ class GlobalApplication: Application() {
             if (appSetId.isNullOrBlank()) GlobalScope.launch(noExceptionContext) {
                 appSetId = AppSetIdManager.obtain(applicationContext)?.getAppSetId()?.id ?: AppSet.getClient(applicationContext).appSetIdInfo.await().id
             }
-            CronetProviderInstaller.installProvider(this)
+            CronetProviderInstaller.installProvider(this).addOnFailureListener(Dispatchers.IO.asExecutor()) {
+                if (Conscrypt.isAvailable()) Security.insertProviderAt(Conscrypt.newProviderBuilder().provideTrustManager(true).build(), 0)
+            }
+            GlobalScope.launch(noExceptionContext) {
+                @Suppress("NewApi")
+                googleTime = TrustedTime.createClient(this@GlobalApplication).await().computeCurrentInstant()
+            }
         } else {
             getGAIDFallback()
             if (Conscrypt.isAvailable()) Security.insertProviderAt(Conscrypt.newProviderBuilder().provideTrustManager(true).build(), 0)
@@ -84,18 +95,19 @@ class GlobalApplication: Application() {
     }
 
     companion object {
-        private val mmkv by lazy { MMKV.defaultMMKV(MMKV.MULTI_PROCESS_MODE, null) }
+        private val mmkv by lazy { MMKV.defaultMMKV(MMKV.MULTI_PROCESS_MODE, null).apply { enableAutoKeyExpire(MMKV.ExpireInHour) } }
         val appVersion by lazy { appCtx.packageManager.getPackageInfoCompat(appCtx.packageName,
             PackageManager.GET_CONFIGURATIONS)?.let { PackageInfoCompat.getLongVersionCode(it) } ?: 0L
         }
         val appVersionName: String by lazy { appCtx.packageManager.getPackageInfoCompat(appCtx.packageName)?.versionName.orEmpty() }
         val isDebug by lazy { appCtx.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0 }
+        var googleTime: Instant? = null
         var lastLoginTime: Long
             get() = mmkv.decodeLong(Constants.LASTLOGINTAG)
-            set(value) { mmkv.encode(Constants.LASTLOGINTAG, value) }
+            set(value) { mmkv.encode(Constants.LASTLOGINTAG, value, MMKV.ExpireNever) }
         var gaid: String?
             get() = mmkv.decodeString(Constants.GAIDTAG)
-            set(value) { mmkv.encode(Constants.GAIDTAG, value) }
+            set(value) { mmkv.encode(Constants.GAIDTAG, value, MMKV.ExpireNever) }
         var appSetId: String?
             get() = mmkv.decodeString(Constants.APPSETIDTAG)
             set(value) { mmkv.encode(Constants.APPSETIDTAG, value) }
@@ -114,10 +126,13 @@ class GlobalApplication: Application() {
         var address: Address?
             get() = mmkv.decodeParcelable(Constants.ADDRESSTAG, Address::class.java)
             set(value) { mmkv.encode(Constants.ADDRESSTAG, value) }
+        var gnssTimeNano: Long
+            get() = mmkv.decodeLong(Constants.GNSSTIMETAG, 0L)
+            set(value) { mmkv.encode(Constants.GNSSTIMETAG, value) }
         val trueTime by lazy { TrueTimeImpl(
             params = TrueTimeParameters.Builder()
                 .returnSafelyWhenUninitialized(true)
-                .ntpHostPool(arrayListOf("ntp1.nim.ac.cn", "ntp.ntsc.ac.cn",
+                .ntpHostPool(arrayListOf("ntp.ntsc.ac.cn",
                     "ntp.sjtu.edu.cn", "time-e-g.nist.gov"))
                 .buildParams())
         }

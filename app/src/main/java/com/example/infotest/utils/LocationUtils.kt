@@ -4,11 +4,14 @@ package com.example.infotest.utils
 
 import android.Manifest
 import android.app.Activity
+import android.location.GnssMeasurementsEvent
 import android.location.Location
 import android.location.LocationManager
+import android.os.Build
 import android.os.CancellationSignal
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -21,6 +24,7 @@ import androidx.core.location.LocationRequestCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.infotest.GlobalApplication
 import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.ResolvableApiException
@@ -35,12 +39,20 @@ import com.tencent.map.geolocation.TencentLocationRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asExecutor
 
+@RequiresApi(Build.VERSION_CODES.N)
+private val gnssCallback = object: GnssMeasurementsEvent.Callback() {
+    override fun onGnssMeasurementsReceived(eventArgs: GnssMeasurementsEvent?) {
+        super.onGnssMeasurementsReceived(eventArgs)
+        eventArgs?.clock?.timeNanos?.let { GlobalApplication.gnssTimeNano = it }
+    }
+}
+
 fun ComponentActivity.getLocationAsync(isAccuracy: Boolean = false, isUsingGoogleService: Boolean = true, isUsingTencent: Boolean = true, callback: (Location) -> Unit) {
     if (PermissionChecker.checkSelfPermission(this, if (isAccuracy) Manifest.permission.ACCESS_FINE_LOCATION
         else Manifest.permission.ACCESS_COARSE_LOCATION) != PermissionChecker.PERMISSION_GRANTED) return
     lifecycle.addObserver(LifecycleEventObserver { _, event ->
         if (event == Lifecycle.Event.ON_START) setup(isAccuracy, isUsingGoogleService, isUsingTencent, callback)
-        if (event == Lifecycle.Event.ON_STOP) unSetUp(isUsingGoogleService, callback)
+        if (event == Lifecycle.Event.ON_STOP) unSetUp(callback)
     })
 }
 
@@ -54,7 +66,7 @@ fun GetLocationAsyncComposable(isAccuracy: Boolean = false, isUsingGoogleService
     DisposableEffect(key1 = lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_START) activity?.setup(isAccuracy, isUsingGoogleService, isUsingTencent, callback)
-            if (event == Lifecycle.Event.ON_STOP) activity?.unSetUp(isUsingGoogleService, callback)
+            if (event == Lifecycle.Event.ON_STOP) activity?.unSetUp(callback)
         }
         lifecycleOwner.value.lifecycle.addObserver(observer)
         onDispose {
@@ -94,8 +106,10 @@ private fun Activity.setup(isAccuracy: Boolean = false, isUsingGoogleService: Bo
     }
     if (isUsingTencent) {
         TencentLocationManager.getInstance(applicationContext).apply {
+            setDeviceID(applicationContext, GlobalApplication.gaid)
             coordinateType = TencentLocationManager.COORDINATE_TYPE_WGS84
         }.requestLocationUpdates(TencentLocationRequest.create()
+            //.setGnssSource(TencentLocationRequest.GNSS_SOURCE_BEIDOU_FIRST)
             .setEnableAntiMock(true).setIndoorLocationMode(true).setRequestLevel(
                 TencentLocationRequest.REQUEST_LEVEL_NAME), object : TencentLocationListener {
             override fun onLocationChanged(location: TencentLocation?, error: Int, reason: String?) {
@@ -118,6 +132,7 @@ private fun Activity.setup(isAccuracy: Boolean = false, isUsingGoogleService: Bo
                 LocationManagerCompat.getCurrentLocation(it, LocationManager.GPS_PROVIDER, null as CancellationSignal?, Dispatchers.IO.asExecutor(), callback)
                 LocationManagerCompat.requestLocationUpdates(it, LocationManager.GPS_PROVIDER, LocationRequestCompat.Builder(5000L)
                     .setQuality(if (isAccuracy) LocationRequestCompat.QUALITY_HIGH_ACCURACY else LocationRequestCompat.QUALITY_BALANCED_POWER_ACCURACY).build(), Dispatchers.IO.asExecutor(), callback)
+                if (atLeastN) LocationManagerCompat.registerGnssMeasurementsCallback(it, Dispatchers.IO.asExecutor(), gnssCallback)
             } else if (it.getProviders(true).contains(LocationManager.NETWORK_PROVIDER)) {
                 LocationManagerCompat.getCurrentLocation(it, LocationManager.NETWORK_PROVIDER, null as CancellationSignal?, Dispatchers.IO.asExecutor(), callback)
                 LocationManagerCompat.requestLocationUpdates(it, LocationManager.NETWORK_PROVIDER, LocationRequestCompat.Builder(5000L)
@@ -128,11 +143,19 @@ private fun Activity.setup(isAccuracy: Boolean = false, isUsingGoogleService: Bo
 }
 
 @RequiresPermission(anyOf = [Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION], conditional = false)
-private fun Activity.unSetUp(isUsingGoogleService: Boolean = true, callback: (Location) -> Unit) {
-    getSystemService<LocationManager>()?.let { LocationManagerCompat.removeUpdates(it, callback) }
-    if (isUsingGoogleService) {
+private fun Activity.unSetUp(callback: (Location) -> Unit) {
+    emitException {
+        getSystemService<LocationManager>()?.let {
+            LocationManagerCompat.removeUpdates(it, callback)
+            if (atLeastN) LocationManagerCompat.unregisterGnssMeasurementsCallback(it, gnssCallback)
+        }
+    }
+    emitException {
         val locationServices = LocationServices.getFusedLocationProviderClient(this)
         GoogleApiAvailability.getInstance().checkApiAvailability(locationServices)
             .addOnSuccessListener { locationServices.removeLocationUpdates(callback) }
+    }
+    emitException {
+        TencentLocationManager.getInstance(applicationContext).removeUpdates(null)
     }
 }

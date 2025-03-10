@@ -11,6 +11,8 @@ import androidx.benchmark.macro.junit4.MacrobenchmarkRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
 import androidx.test.rule.GrantPermissionRule
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.Until
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -83,6 +85,8 @@ class StartupBenchmarks {
             },
             measureBlock = {
                 startActivityAndWait()
+
+                device.wait(Until.hasObject(By.res("fully_drawn_marker")), 5_000)
 
                 // TODO Add interactions to wait for when your app is fully drawn.
                 // The app is fully drawn when Activity.reportFullyDrawn is called.

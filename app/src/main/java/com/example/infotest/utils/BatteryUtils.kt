@@ -1,6 +1,5 @@
 package com.example.infotest.utils
 
-import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -29,7 +28,7 @@ fun Context.getBatteryStatus(): BatteryStatus {
     )
 }
 
-@SuppressLint("PrivateApi")
+@Suppress("PrivateApi")
 private fun getBatteryCapacityByHook() = {
     getClassOrNull("com.android.internal.os.PowerProfile")?.let {
         it.getAccessibleMethod("getBatteryCapacity")?.invoke(it.getAccessibleConstructor(true,

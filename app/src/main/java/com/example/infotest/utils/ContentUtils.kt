@@ -75,8 +75,7 @@ else ContentResolverCompat.query(this, contentUri, projection,
 @SafeVarargs
 fun Context.countContent(@RequiresPermission vararg contentUri: Uri): Int =
     contentUri.filterNot { it == Uri.EMPTY }.fold(0) { sum, uri -> {
-        contentResolver.queryAll(contentUri = uri, projection = emptyArray())
-            .use { sum + (it?.count ?: 0) }
+        contentResolver.queryAll(contentUri = uri, projection = emptyArray()).use { sum + (it?.count ?: 0) }
     }.catchReturn(sum)
 }
 
@@ -118,10 +117,8 @@ fun MutableObjectList<ImageInfo>.processCursor(cursor: Cursor?, contentResolver:
         val size = {
             if(atLeastQ && retriever != null) retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_IMAGE_WIDTH) to
                     retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_IMAGE_HEIGHT)
-            else BitmapFactory.Options().apply {
-                inJustDecodeBounds = true
-                BitmapFactory.decodeFileDescriptor(input.fileDescriptor, Rect(), this)
-            }.let { it.outHeight.toString() to it.outWidth.toString() }
+            else BitmapFactory.Options().apply { inJustDecodeBounds = true }.also { BitmapFactory.decodeFileDescriptor(input.fileDescriptor, Rect(), it) }
+                .let { it.outHeight.toString() to it.outWidth.toString() }
         }.catchReturn("-1" to "-1")
         val locationFallback = { PointLocationParser.parsePointLocation(retriever?.extractMetadata(MediaMetadataRetriever.METADATA_KEY_LOCATION)) }.catchReturnNull()
         add(ImageInfo(
