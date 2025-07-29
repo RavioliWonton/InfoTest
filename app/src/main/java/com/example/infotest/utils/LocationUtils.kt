@@ -4,6 +4,8 @@ package com.example.infotest.utils
 
 import android.Manifest
 import android.app.Activity
+import android.location.Address
+import android.location.Geocoder
 import android.location.GnssMeasurementsEvent
 import android.location.Location
 import android.location.LocationManager
@@ -13,12 +15,14 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
+import androidx.collection.objectListOf
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.PermissionChecker
 import androidx.core.content.getSystemService
+import androidx.core.location.LocationCompat
 import androidx.core.location.LocationManagerCompat
 import androidx.core.location.LocationRequestCompat
 import androidx.lifecycle.Lifecycle
@@ -38,16 +42,19 @@ import com.tencent.map.geolocation.TencentLocationManager
 import com.tencent.map.geolocation.TencentLocationRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asExecutor
+import java.util.Locale
 
-@RequiresApi(Build.VERSION_CODES.N)
-private val gnssCallback = object: GnssMeasurementsEvent.Callback() {
-    override fun onGnssMeasurementsReceived(eventArgs: GnssMeasurementsEvent?) {
-        super.onGnssMeasurementsReceived(eventArgs)
-        eventArgs?.clock?.timeNanos?.let { GlobalApplication.gnssTimeNano = it }
+@delegate:RequiresApi(Build.VERSION_CODES.N)
+private val gnssCallback by lazy {
+    object : GnssMeasurementsEvent.Callback() {
+        override fun onGnssMeasurementsReceived(eventArgs: GnssMeasurementsEvent?) {
+            super.onGnssMeasurementsReceived(eventArgs)
+            eventArgs?.clock?.timeNanos?.let { GlobalApplication.gnssTimeNano = it }
+        }
     }
 }
 
-fun ComponentActivity.getLocationAsync(isAccuracy: Boolean = false, isUsingGoogleService: Boolean = true, isUsingTencent: Boolean = true, callback: (Location) -> Unit) {
+fun ComponentActivity.getLocationAsync(isAccuracy: Boolean = false, isUsingGoogleService: Boolean = true, isUsingTencent: Boolean = true, callback: (Location?) -> Unit) {
     if (PermissionChecker.checkSelfPermission(this, if (isAccuracy) Manifest.permission.ACCESS_FINE_LOCATION
         else Manifest.permission.ACCESS_COARSE_LOCATION) != PermissionChecker.PERMISSION_GRANTED) return
     lifecycle.addObserver(LifecycleEventObserver { _, event ->
@@ -57,7 +64,7 @@ fun ComponentActivity.getLocationAsync(isAccuracy: Boolean = false, isUsingGoogl
 }
 
 @Composable
-fun GetLocationAsyncComposable(isAccuracy: Boolean = false, isUsingGoogleService: Boolean = true, isUsingTencent: Boolean = true, callback: (Location) -> Unit) {
+fun GetLocationAsyncComposable(isAccuracy: Boolean = false, isUsingGoogleService: Boolean = true, isUsingTencent: Boolean = true, callback: (Location?) -> Unit) {
     val context = LocalContext.current
     val activity = context.findActivity()
     if (PermissionChecker.checkSelfPermission(context, if (isAccuracy) Manifest.permission.ACCESS_FINE_LOCATION
@@ -76,7 +83,7 @@ fun GetLocationAsyncComposable(isAccuracy: Boolean = false, isUsingGoogleService
 }
 
 @RequiresPermission(anyOf = [Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION], conditional = false)
-private fun Activity.setup(isAccuracy: Boolean = false, isUsingGoogleService: Boolean = true, isUsingTencent: Boolean = true, callback: (Location) -> Unit) {
+private fun Activity.setup(isAccuracy: Boolean = false, isUsingGoogleService: Boolean = true, isUsingTencent: Boolean = true, callback: (Location?) -> Unit) {
     if (isUsingGoogleService) {
         val locationServices = LocationServices.getFusedLocationProviderClient(this)
         GoogleApiAvailability.getInstance().checkApiAvailability(locationServices).addOnSuccessListener {
@@ -89,10 +96,8 @@ private fun Activity.setup(isAccuracy: Boolean = false, isUsingGoogleService: Bo
                     if (response?.isLocationUsable == false) {
                         startActionCompat(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
                     } else {
-                        if (response?.isLocationPresent == true || response?.isBlePresent == true ||
-                            locationServices.locationAvailability.getResult(ApiException::class.java).isLocationAvailable) {
+                        if (response?.isLocationPresent == true || response?.isBlePresent == true || locationServices.locationAvailability.getResult(ApiException::class.java).isLocationAvailable)
                             locationServices.lastLocation.addOnSuccessListener { callback.invoke(it) }
-                        }
                         locationServices.requestLocationUpdates(request, Dispatchers.IO.asExecutor(), callback)
                     }
                 } catch (e: ApiException) {
@@ -105,7 +110,7 @@ private fun Activity.setup(isAccuracy: Boolean = false, isUsingGoogleService: Bo
         }
     }
     if (isUsingTencent) {
-        TencentLocationManager.getInstance(applicationContext).apply {
+        TencentLocationManager.getInstance(applicationContext).applyEmitException {
             setDeviceID(applicationContext, GlobalApplication.gaid)
             coordinateType = TencentLocationManager.COORDINATE_TYPE_WGS84
         }.requestLocationUpdates(TencentLocationRequest.create()
@@ -113,12 +118,39 @@ private fun Activity.setup(isAccuracy: Boolean = false, isUsingGoogleService: Bo
             .setEnableAntiMock(true).setIndoorLocationMode(true).setRequestLevel(
                 TencentLocationRequest.REQUEST_LEVEL_NAME), object : TencentLocationListener {
             override fun onLocationChanged(location: TencentLocation?, error: Int, reason: String?) {
-                if (error == TencentLocation.ERROR_OK && location != null && location.provider != TencentLocation.FAKE)
-                    callback.invoke(Location(location.provider).apply {
+                if (error == TencentLocation.ERROR_OK && location != null && location.provider != TencentLocation.FAKE) {
+                    callback.invoke(Location("ten_${location.provider}").apply {
                         latitude = location.latitude
                         longitude = location.longitude
-                        elapsedRealtimeNanos = location.elapsedRealtime
+                        altitude = location.altitude
+                        time = location.time
+                        elapsedRealtimeNanos = location.elapsedRealtime * 1000
+                        if (location.provider == TencentLocation.GPS_PROVIDER) {
+                            speed = location.speed
+                            bearing = location.bearing
+                            accuracy = location.accuracy
+                            LocationCompat.setMock(this, location.isMockGps == 1)
+                            LocationCompat.setVerticalAccuracyMeters(this, location.accuracy)
+                        }
                     })
+                    if (location.address.isNotBlank())
+                        GlobalApplication.address = Address(Locale.CHINA).apply {
+                            latitude = location.latitude
+                            longitude = location.longitude
+                            objectListOf(location.nation, location.province,
+                                location.city, location.district,
+                                location.street.takeIf { it.isNotBlank() } ?: location.town,
+                                location.village, location.address).forEachReversed { if (it.isNotBlank())
+                                setAddressLine(maxAddressLineIndex + 1, it) }
+                            adminArea = location.province
+                            subAdminArea = location.city
+                            // location.getNationCode return 0 without key,
+                            // but address won't get valid data outside China,
+                            // so just use China's nation code
+                            countryCode = "86"
+                            countryName = location.nation
+                        }
+                }
             }
 
             override fun onStatusUpdate(p0: String?, p1: Int, p2: String?) = Unit
@@ -143,7 +175,7 @@ private fun Activity.setup(isAccuracy: Boolean = false, isUsingGoogleService: Bo
 }
 
 @RequiresPermission(anyOf = [Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION], conditional = false)
-private fun Activity.unSetUp(callback: (Location) -> Unit) {
+private fun Activity.unSetUp(callback: (Location?) -> Unit) {
     emitException {
         getSystemService<LocationManager>()?.let {
             LocationManagerCompat.removeUpdates(it, callback)
@@ -159,3 +191,6 @@ private fun Activity.unSetUp(callback: (Location) -> Unit) {
         TencentLocationManager.getInstance(applicationContext).removeUpdates(null)
     }
 }
+
+fun Location.couldFetchAddress() =
+    { Geocoder.isPresent() && provider?.startsWith("ten_")?.not() == true }.catchFalse()

@@ -88,7 +88,8 @@ object PathParceler: Parceler<Path?> {
 @RequiresPermission(Manifest.permission.MANAGE_EXTERNAL_STORAGE)
 private fun Context.getSDCardInfo() = mutableObjectListOf<SDCardInfo>().applyEmitException {
     val sm = getSystemService<StorageManager>()
-    if (atLeastN) (if (atLeastT && Environment.isExternalStorageManager()) sm?.storageVolumesIncludingSharedProfiles else sm?.storageVolumes)?.mapNotNull { SDCardInfo(it.directoryCompat, it.state, it.isRemovable) }?.let(::addAll)
+    if (atLeastN) (if (atLeastT && Environment.isExternalStorageManager()) sm?.storageVolumesIncludingSharedProfiles else sm?.storageVolumes)
+        ?.mapNotNull { SDCardInfo(it.directoryCompat, it.state, it.isRemovable) }?.let(::addAll)
     else getClassOrNull("android.os.storage.StorageVolume")?.let { clazz ->
         val pathMethod = clazz.getAccessibleMethod("getPath")
         val isRemovableMethod = clazz.getAccessibleMethod("isRemovable")

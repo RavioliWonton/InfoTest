@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="RecordComponent">
+    <option name="operationList">
+      <list>
+        <Operation>
+          <option name="operationName" value="查看lint原生报告" />
+          <option name="operationTime" value="2025-06-13 18:02:08" />
+          <option name="pluginVersion" value="1.1.7" />
+        </Operation>
+        <Operation>
+          <option name="operationName" value="单次独立扫描" />
+          <option name="operationTime" value="2025-06-13 18:02:11" />
+          <option name="pluginVersion" value="1.1.7" />
+        </Operation>
+        <Operation>
+          <option name="operationName" value="单次独立扫描" />
+          <option name="operationTime" value="2025-06-13 18:02:11" />
+          <option name="pluginVersion" value="1.1.7" />
+        </Operation>
+        <Operation>
+          <option name="operationName" value="查看lint原生报告" />
+          <option name="operationTime" value="2025-06-13 18:02:17" />
+          <option name="pluginVersion" value="1.1.7" />
+        </Operation>
+        <Operation>
+          <option name="operationName" value="查看lint原生报告" />
+          <option name="operationTime" value="2025-06-13 18:02:21" />
+          <option name="pluginVersion" value="1.1.7" />
+        </Operation>
+        <Operation>
+          <option name="operationName" value="单次独立扫描" />
+          <option name="operationTime" value="2025-06-13 18:04:04" />
+          <option name="pluginVersion" value="1.1.7" />
+        </Operation>
+        <Operation>
+          <option name="operationName" value="单次独立扫描" />
+          <option name="operationTime" value="2025-06-13 18:04:04" />
+          <option name="pluginVersion" value="1.1.7" />
+        </Operation>
+        <Operation>
+          <option name="operationName" value="查看lint原生报告" />
+          <option name="operationTime" value="2025-06-13 18:04:07" />
+          <option name="pluginVersion" value="1.1.7" />
+        </Operation>
+      </list>
+    </option>
+  </component>
+</project>

@@ -2,14 +2,14 @@ import com.android.build.api.dsl.ManagedVirtualDevice
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
-    id 'com.android.test'
-    id 'org.jetbrains.kotlin.android'
-    id 'androidx.baselineprofile'
+    alias(libs.plugins.android.test)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.androidx.baselineprofile)
 }
 
 android {
     namespace = 'com.example.baselineprofile'
-    compileSdk = 35
+    compileSdk = 36
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
@@ -22,14 +22,22 @@ android {
 
     defaultConfig {
         minSdk = 28
-        targetSdk = 35
+        targetSdk = 36
 
         testInstrumentationRunner = 'androidx.test.runner.AndroidJUnitRunner'
+        testInstrumentationRunnerArguments["androidx.benchmark.fullTracing.enable"] = "true"
     }
 
     targetProjectPath = ':app'
+    // Enable the benchmark to run separately from the app process
+    experimentalProperties["android.experimental.self-instrumenting"] = true
 
     testOptions.managedDevices.devices {
+        pixel9Api36(ManagedVirtualDevice) {
+            device = 'Pixel 9'
+            apiLevel = 36
+            systemImageSource = 'google'
+        }
         pixel6Api35(ManagedVirtualDevice) {
             device = 'Pixel 6'
             apiLevel = 35
@@ -46,22 +54,24 @@ android {
 // This is the configuration block for the Baseline Profile plugin.
 // You can specify to run the generators on a managed devices or connected devices.
 baselineProfile {
-    managedDevices += ["pixel6Api35", "pixel8Api34"]
+    managedDevices += ["pixel6Api35", "pixel8Api34", "pixel9Api36"]
     useConnectedDevices = false
 }
 
 dependencies {
-    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
-    implementation "androidx.tracing:tracing-ktx:$tracing_version"
-    implementation "androidx.annotation:annotation:$androidx_annotation_version"
-    implementation "androidx.annotation:annotation-experimental:$androidx_annotation_experimental_version"
-    implementation "androidx.concurrent:concurrent-futures-ktx:$androidx_concurrent_future_version"
-    implementation "androidx.lifecycle:lifecycle-common-java8:$lifecycle_version"
-    implementation "androidx.test.ext:junit:$test_junit_version"
-    implementation "androidx.test.espresso:espresso-core:$test_espresso_version"
-    implementation 'androidx.test.uiautomator:uiautomator:2.4.0-alpha01'
-    implementation 'androidx.test:rules:1.7.0-alpha01'
-    implementation "androidx.benchmark:benchmark-macro-junit4:$benchmark_version"
-    implementation "com.squareup.okio:okio:$okio_version"
-    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:$coroutine_version"
+    implementation libs.kotlin.stdlib.jdk8
+    implementation libs.androidx.tracing.ktx
+    implementation libs.androidx.tracing.perfetto
+    implementation libs.androidx.tracing.perfetto.binary
+    implementation libs.androidx.annotation
+    implementation libs.androidx.annotation.experimental
+    implementation libs.androidx.concurrent.futures.ktx
+    implementation libs.androidx.lifecycle.common.java8
+    implementation libs.androidx.test.junit
+    implementation libs.androidx.test.espresso.core
+    implementation libs.androidx.test.uiautomator
+    implementation libs.androidx.test.rules
+    implementation libs.androidx.benchmark.macro.junit4
+    implementation libs.okio
+    implementation libs.kotlinx.coroutines.test
 }

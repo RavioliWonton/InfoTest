@@ -14,7 +14,7 @@
             <option value="$PROJECT_DIR$/baselineprofile" />
           </set>
         </option>
-        <option name="resolveExternalAnnotations" value="false" />
+        <option name="resolveExternalAnnotations" value="true" />
       </GradleProjectSettings>
     </option>
     <option name="parallelModelFetch" value="true" />

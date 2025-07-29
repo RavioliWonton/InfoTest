@@ -1,4 +1,4 @@
-@file:Suppress("unused")
+@file:Suppress("unused", "ERROR_SUPPRESSION")
 
 package com.example.infotest.utils
 
@@ -28,6 +28,7 @@ import androidx.core.util.ObjectsCompat
 import com.example.infotest.GlobalApplication
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailabilityLight
+// import com.miui.deviceid.IdentifierManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.GlobalScope
@@ -37,6 +38,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import splitties.init.appCtx
+import kotlin.contracts.ExperimentalContracts
+import kotlin.contracts.InvocationKind
+import kotlin.contracts.contract
 import kotlin.io.path.Path
 import kotlin.io.path.bufferedReader
 import kotlin.io.path.exists
@@ -44,6 +48,23 @@ import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 import kotlin.uuid.toJavaUuid
+
+@Suppress("HardwareIds")
+fun ContentResolver.getAndroidID() =
+    Settings.Secure.getString(this, Settings.Secure.ANDROID_ID).ifNotValidAndroidID {
+        getSecureSettingStringForUser(Settings.Secure.ANDROID_ID).ifNotValidAndroidID {
+            getSecureSettingStringForUserViaLowLevel(Settings.Secure.ANDROID_ID).orEmpty()
+        }
+    }
+
+@OptIn(ExperimentalContracts::class)
+@Suppress("BOUNDS_NOT_ALLOWED_IF_BOUNDED_BY_TYPE_PARAMETER")
+inline fun <C, R> C?.ifNotValidAndroidID(defaultValue: () -> R): R where C : CharSequence, C : R {
+    contract {
+        callsInPlace(defaultValue, InvocationKind.AT_MOST_ONCE)
+    }
+    return if (isNullOrBlank() || contentEquals("9774d56d682e549c", true)) defaultValue() else this
+}
 
 @OptIn(DelicateCoroutinesApi::class)
 fun Context.getGAIDFallback() {
@@ -71,18 +92,18 @@ fun Context.getUniquePseudoId(): String = {
             Build.ID.length % 10 + Build.MANUFACTURER.length % 10 + Build.MODEL.length % 10 +
             Build.PRODUCT.length % 10 + Build.TAGS.length % 10 + Build.TYPE.length % 10 +
             Build.USER.length % 10
-    val androidId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
-    val id = if (Build.SERIAL != Build.UNKNOWN) androidId + Build.SERIAL else androidId
+    val id = contentResolver.getAndroidID() + Build.SERIAL.takeIf { it != Build.UNKNOWN }.orEmpty()
     val serial: String = {
         // api >= 9 reflect to get serial
-        Build::class.java.getField("SERIAL").get(null)?.toString()
+        Build::class.java.getAccessibleField("SERIAL")?.get(null)?.toString()
     // must init serial, use itself
     }.catchReturn("serial")
 
     Uuid.fromLongs(ObjectsCompat.hashCode(szDevIdShort).toLong(), ObjectsCompat.hashCode(serial).toLong()).toString() + id
 }.catchEmpty()
 
-@OptIn(ExperimentalUnsignedTypes::class, ExperimentalStdlibApi::class, ExperimentalUuidApi::class)
+@Suppress("UnusedReceiverParameter")
+@OptIn(ExperimentalUnsignedTypes::class, ExperimentalUuidApi::class)
 fun Context.getUniqueMediaDrmID(): String = {
     // https://github.com/androidx/media/blob/release/libraries/common/src/main/java/androidx/media3/common/C.java#L1086
     Uuid.fromLongs(-0x121074568629b532L, -0x5c37d8232ae2de13L).takeIf { MediaCrypto.isCryptoSchemeSupported(it.toJavaUuid()) }?.let { uuid ->
@@ -97,7 +118,6 @@ fun Context.getUniqueMediaDrmID(): String = {
 // Light is enough for checking for gms availability according to so/57902978
 fun Context.isGoogleServiceAvailable() = GoogleApiAvailabilityLight.getInstance().isGooglePlayServicesAvailable(this) == ConnectionResult.SUCCESS
 
-@OptIn(ExperimentalStdlibApi::class)
 @RequiresPermission("com.google.android.providers.gsf.permission.READ_GSERVICES")
 fun Context.getGSFId(): String = {
     if (isGoogleServiceAvailable())
@@ -124,12 +144,12 @@ suspend fun Context.getOAID(): String? = when {
         }
     }
     getSystemProperty("ro.odm.manufacturer").equals("PRIZE", true) -> withContext(noExceptionContext) {
-        getSystemService<KeyguardManager>()?.let { (KeyguardManager::class.java.getDeclaredAccessibleMethod("obtainOaid")?.invoke(it, emptyArray<Any>()) as String?)
+        getSystemService<KeyguardManager>()?.let { manager -> (KeyguardManager::class.java.getDeclaredAccessibleMethod("obtainOaid")?.invoke(manager, emptyArray<Any>()) as String?)
             .takeIf { KeyguardManager::class.java.getDeclaredAccessibleMethod("isSupported")?.invoke(it, emptyArray<Any>()) == true } }
     }
     getSystemProperty("ro.build.uiversion")?.isNotBlank() == true -> withContext(noExceptionContext) {
-        packageManager.getPackageInfoCompat("com.qiku.id")?.let {
-            processIBinderFromOAIDService(Intent("qiku.service.action.id").setPackage(it.packageName)) {
+        packageManager.getPackageInfoCompat("com.qiku.id")?.let { info ->
+            processIBinderFromOAIDService(Intent("qiku.service.action.id").setPackage(info.packageName)) {
                 val iter = OAIDInterface.QikuID(it)
                 iter.getID().takeIf { iter.isSupport }
             }
@@ -141,13 +161,14 @@ suspend fun Context.getOAID(): String? = when {
             }
         }
     }
-    objectListOf("LENOVO", "MOTOLORA").any { Build.MANUFACTURER.equals(it,true) } -> withContext(noExceptionContext) {
+    objectListOf("LENOVO", "MOTOROLA").any { Build.MANUFACTURER.equals(it,true) } || Build.FINGERPRINT.contains("VIBEUI_V2") ||
+        getSystemPropertyWithFallback("ro.build.version.incremental")?.contains("VIBEUI_V2") == true -> withContext(noExceptionContext) {
         processIBinderFromOAIDService(Intent().setClassName("com.zui.deviceidservice", "com.zui.deviceidservice.DeviceidService")) {
             val iter = OAIDInterface.LENID(it)
             iter.getID(1, packageName).takeIf { iter.isSupport }
         }
     }
-    Build.MANUFACTURER.equals("MEIZU", true) || Build.DISPLAY.contains("FLYME", true) -> withContext(noExceptionContext) {
+    Build.MANUFACTURER.equals("MEIZU", true) || Build.DISPLAY.contains("FLYME", true) || Build.USER.equals("flyme", ignoreCase = true) -> withContext(noExceptionContext) {
         packageManager.resolveContentProvider("com.meizu.flyme.openidsdk", 0)?.let { info ->
             contentResolver.queryAll(Uri.Builder().scheme(ContentResolver.SCHEME_CONTENT).authority(info.authority).build()).use {
                 it.getSingleString("value")
@@ -159,7 +180,7 @@ suspend fun Context.getOAID(): String? = when {
             client.call("getOAID", null, null)?.takeIf { it.getInt("code", -1) == 0 }?.getString("id")
         }
     }
-    objectListOf("ONEPLUS", "OPPO").any { Build.MANUFACTURER.equals(it, true) } || getSystemProperty("ro.build.version.opporom")?.isNotBlank() == true -> withContext(noExceptionContext) {
+    isColorOS() -> withContext(noExceptionContext) {
         packageManager.getPackageInfoCompat("com.heytap.openid")?.let { info ->
             PackageInfoCompat.getLongVersionCode(info).takeIf { it >= -1 }?.let {
                 processIBinderFromOAIDService(Intent("action.com.heytap.openid.OPEN_ID_SERVICE").setClassName("com.heytap.openid", "com.heytap.openid.IdentifyService")) { binder ->
@@ -177,14 +198,16 @@ suspend fun Context.getOAID(): String? = when {
     Build.MANUFACTURER.equals("SAMSUNG", true) -> withContext(noExceptionContext) {
         packageManager.getPackageInfoCompat("com.samsung.android.deviceidservice")?.let {
             processIBinderFromOAIDService(Intent().setClassName("com.samsung.android.deviceidservice", "com.samsung.android.deviceidservice.DeviceIdService")) {
-                OAIDInterface.SAMID(it).getID()
+                OAIDInterface.SAMID(it).getID().takeIf { Settings.System.getInt(contentResolver, "allow_device_id", 1) == 0 }
             }
         }
     }
     Build.MANUFACTURER.equals("VIVO", true) || getSystemProperty("ro.vivo.os.version")?.isNotBlank() == true -> withContext(noExceptionContext) {
-        contentResolver.queryAll("content://com.vivo.vms.IdProvider/IdentifierId/OAID".toUri()).use { it.getSingleString("value") }
+        contentResolver.queryAll("content://com.vivo.vms.IdProvider/IdentifierId/OAID".toUri()).use { it.getSingleString("value")
+            .takeIf { getSystemProperty("persist.sys.identifierid.supported", "0") == "1" } }
     }
     objectListOf("XIAOMI", "BLACKSHARK").any { Build.MANUFACTURER.equals(it, true) } || getSystemProperty("ro.miui.ui.version.name")?.isNotBlank() == true -> withContext(noExceptionContext) {
+        // IdentifierManager.getOAID(this@getOAID)
         getClassOrNull("com.android.id.impl.IdProviderImpl")?.let {
             it.getAccessibleMethod("getOAID", Context::class.java)?.invoke(it.getAccessibleConstructor(true)?.newInstance(), this@getOAID) as String?
         }
@@ -192,7 +215,7 @@ suspend fun Context.getOAID(): String? = when {
     Build.MANUFACTURER.equals("ZTE", true) -> getOAIDOfficially()
     // perfer HMS SDK
     com.huawei.hms.ads.identifier.AdvertisingIdClient.isAdvertisingIdAvailable(this@getOAID) -> withContext(noExceptionContext) {
-        com.huawei.hms.ads.identifier.AdvertisingIdClient.getAdvertisingIdInfo(this@getOAID).id
+        com.huawei.hms.ads.identifier.AdvertisingIdClient.getAdvertisingIdInfo(this@getOAID).let { info -> info.id.takeIf { !info.isLimitAdTrackingEnabled } }
         /*packageManager.getPackageInfoCompat("com.huawei.hwid")?.let {
             Intent("com.uodis.opendevice.OPENIDS_SERVICE").setPackage("com.huawei.hwid").takeIf { packageManager.queryIntentServices(it, 0).isNotEmpty() }?.let { intent ->
                 // if Settings.Global.getString(contentResolver, "pps_oaid") and Settings.Global.getString(context.getContentResolver(), "pps_track_limit") all non null, id will be all zero.
@@ -201,7 +224,7 @@ suspend fun Context.getOAID(): String? = when {
         }*/
     }
     com.hihonor.ads.identifier.AdvertisingIdClient.isAdvertisingIdAvailable(this@getOAID) -> withContext(noExceptionContext) {
-        com.hihonor.ads.identifier.AdvertisingIdClient.getAdvertisingIdInfo(this@getOAID).id
+        com.hihonor.ads.identifier.AdvertisingIdClient.getAdvertisingIdInfo(this@getOAID).let { info -> info.id.takeIf { !info.isLimit } }
     }
     (Build.MANUFACTURER.equals("FERRMEOS", ignoreCase = true) ||
             getSystemProperty("ro.build.freeme.label").equals("FREEMEOS", ignoreCase = true)) -> getOAIDOfficially()
@@ -234,9 +257,7 @@ private suspend fun Context.processIBinderFromOAIDService(intent: Intent, iface:
     }
     if (bindService(intent, connection, Context.BIND_AUTO_CREATE)) try {
         return iface.invoke(queue.tryReceive().getOrThrow())
-    } catch (e: Exception) {
-        e.printStackTrace()
-    } finally {
+    } catch (e: Exception) { e.printStackTrace() } finally {
         unbindService(connection)
         queue.close()
     }
@@ -256,6 +277,7 @@ interface OAIDInterface : IInterface {
             val obtain2 = Parcel.obtain()
             try {
                 obtain.writeInterfaceToken(descriptor)
+                obtain.enforceInterface(descriptor)
                 asBinder()?.transact(IBinder.FIRST_CALL_TRANSACTION + supportOffset, obtain, obtain2, 0)
                 obtain2.readException()
                 return obtain2.readInt() != 0
@@ -273,6 +295,7 @@ interface OAIDInterface : IInterface {
         val obtain2 = Parcel.obtain()
         try {
             obtain.writeInterfaceToken(descriptor)
+            obtain.enforceInterface(descriptor)
             if (length > 0 && parameters.size == length) {
                 parameters.forEach { obtain.writeString(it) }
             }
@@ -385,8 +408,7 @@ interface OAIDInterface : IInterface {
     }
 }
 
-@OptIn(ExperimentalStdlibApi::class)
-private fun PackageInfo.getPrimarySignatureDigest() = getMessageDigestInstanceOrNull("SHA-1")?.let {
+private fun PackageInfo.getPrimarySignatureDigest() = getMessageDigestInstanceOrNull("SHA-1")?.let { digest ->
     PackageInfoCompat.getSignatures(appCtx.packageManager, packageName).firstOrNull()?.toByteArray()?.let { bytes ->
-        it.digest(bytes).joinToString("") { (it.toUByte().toInt() or 256).toHexString(HexFormat.Default).substring(1, 3) } }.orEmpty()
+        digest.digest(bytes).joinToString("") { (it.toUByte().toInt() or 256).toHexString(HexFormat.Default).substring(1, 3) } }.orEmpty()
 }.orEmpty()

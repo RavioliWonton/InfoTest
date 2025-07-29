@@ -15,6 +15,7 @@ import android.hardware.SensorManager
 import android.inputmethodservice.InputMethodService
 import android.os.BatteryManager
 import android.os.Build
+import android.os.Process
 import android.telephony.PhoneNumberUtils
 import android.telephony.TelephonyManager
 import android.view.WindowManager
@@ -77,7 +78,8 @@ private fun Context.isPad() = (getPhysicalSize() ?: -1f) >= 7.0f ||
         (resources.configuration.screenLayout and Configuration.SCREENLAYOUT_SIZE_MASK) >= Configuration.SCREENLAYOUT_SIZE_LARGE
 
 @Suppress("UnusedReceiverParameter")
-fun Context.getIsRooted() = { //(Build.TAGS != Build.UNKNOWN) && Build.TAGS.contains("test-keys") || false positive for custom rom
+fun Context.getIsRooted() = { Process.myUid() == if (atLeastQ) Process.ROOT_UID else 0
+    //(Build.TAGS != Build.UNKNOWN) && Build.TAGS.contains("test-keys") || false positive for custom rom
     arrayOf("/system/bin/", "/system/xbin/", "/sbin/", "/system/sd/xbin/",
             "/system/bin/failsafe/", "/data/local/xbin/", "/data/local/bin/",
             "/data/local/", "/system/sbin/", "/usr/bin/", "/vendor/bin/"
@@ -129,7 +131,7 @@ fun Context.getIsSimulator() = {
                     { if (atLeastS) PhoneNumberUtils.areSamePhoneNumber(it, PhoneNumberUtils.normalizeNumber(getPhoneNumber()), getSystemDefaultLocale().country)
                     else PhoneNumberUtils.compare(it, PhoneNumberUtils.normalizeNumber(getPhoneNumber())) }.catchFalse()
                 }
-            || arrayOf("/proc/tty/drivers", "/proc/cpuinfo").any { CharBuffer.allocate(1024).apply { Path(it).bufferedReader().use { it.read(this) } }
+            || arrayOf("/proc/tty/drivers", "/proc/cpuinfo").any { path -> CharBuffer.allocate(1024).applyEmitException { Path(path).bufferedReader().use { it.read(this) } }
                 .toString().contains("goldfish", true) }
             || { Path("/proc/self/status").bufferedReader().useLines { sequence -> sequence.any {
                 it.startsWith("TracerPid", true) && it.substring("TracerPid".length + 1).toInt() > 0 } } }.catchFalse()

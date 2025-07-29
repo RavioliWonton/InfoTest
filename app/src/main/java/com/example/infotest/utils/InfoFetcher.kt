@@ -60,17 +60,15 @@ import com.example.infotest.MainActivity
 import com.example.infotest.OtherData
 import com.example.infotest.Reminder
 import com.example.infotest.Sms
-import com.squareup.moshi.Moshi
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.future.asCompletableFuture
 import kotlinx.coroutines.future.future
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
 import splitties.init.appCtx
 import java.net.NetworkInterface
 import java.nio.ByteBuffer
@@ -124,23 +122,21 @@ private fun ComponentActivity.getDeviceInfo(): DeviceInfo {
         if (atLeastR) WindowInsetsCompat.toWindowInsetsCompat(getSystemService<WindowManager>()!!.currentWindowMetrics.windowInsets, window.decorView)
         else WindowInsetsCompat.CONSUMED).getInsets(WindowInsetsCompat.Type.systemBars())
     val address = {
-        if (atLeastT) GlobalApplication.address
-        else if (Geocoder.isPresent()) GlobalApplication.gps?.let {
-            Geocoder(this).getFromLocation(it.latitude.toDouble(), it.longitude.toDouble(), 1)
+        GlobalApplication.address ?: if (GlobalApplication.gps?.couldFetchAddress() == true) GlobalApplication.gps?.let {
+            Geocoder(this).getFromLocation(it.latitude, it.longitude, 1)
         }?.firstOrNull()
         else null
     }.catchReturnNull()
-    val imeiHistoryFallback = { listOfNotNull(telephonyManager?.let(TelephonyManagerCompat::getImei)) }.catchEmpty()
+    val imeiHistoryFallback = { listOfNotNull(telephonyManager?.let(TelephonyManagerCompat::getImei).takeIf { it?.isIMEIValid() == true }) }.catchEmpty()
 
     @RequiresPermission(anyOf = [Manifest.permission.READ_PHONE_NUMBERS, "android.permission.READ_PRIVILEGED_PHONE_STATE", Manifest.permission.READ_SMS,
         Manifest.permission.ACCESS_NETWORK_STATE, Manifest.permission.READ_PHONE_STATE, Manifest.permission.READ_BASIC_PHONE_STATE], conditional = true)
     fun getGeneralData() = GeneralData(
-            androidId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID).orEmpty(),
+            androidId = contentResolver.getAndroidID(),
             currentSystemTime = currentNetworkTimeInstant.toEpochMilli().toString(),
             elapsedRealtime = SystemClock.elapsedRealtime().toString(),
             gaid = GlobalApplication.gaid.orEmpty(),
-            imei = { telephonyManager?.let(TelephonyManagerCompat::getImei) }
-                .catchReturn(Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID).orEmpty()),
+            imei = { telephonyManager?.let(TelephonyManagerCompat::getImei).takeIf { it?.isIMEIValid() == true } }.catchReturn(contentResolver.getAndroidID()),
             isUsbDebug = (Settings.Global.getInt(contentResolver, Settings.Global.ADB_ENABLED, 0) > 0).toString(),
             isUsingProxyPort = {
                 atLeastR && connectivityManager?.defaultProxy?.isValid == true ||
@@ -207,8 +203,7 @@ private fun ComponentActivity.getDeviceInfo(): DeviceInfo {
         videoExternal = countContent(videoExternalUri), videoInternal = countContent(videoInternalUri),
         deviceId = {
             getDeviceIdCompat().ifBlank { getUniqueMediaDrmID().ifBlank { getGSFId().ifBlank {
-                Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
-                    ?.takeIf { it.isNotBlank() && it != "9774d56d682e549c" }.orEmpty()//getUniquePseudoId()
+                contentResolver.getAndroidID()//getUniquePseudoId()
             } } }
         }.catchEmpty(),
         deviceInfo = Build.MODEL.takeIf { it != Build.UNKNOWN }.orEmpty(),
@@ -230,8 +225,8 @@ private fun ComponentActivity.getDeviceInfo(): DeviceInfo {
         unUseStorage = {
             /*Formatter.formatFileSize(this, */storageInfo.second.toString()//)
         }.catchReturn("-1"),
-        gpsLatitude = GlobalApplication.gps?.latitude.orEmpty(),
-        gpsLongitude = GlobalApplication.gps?.longitude.orEmpty(),
+        gpsLatitude = GlobalApplication.gps?.latitude?.toString().orEmpty(),
+        gpsLongitude = GlobalApplication.gps?.longitude?.toString().orEmpty(),
         gpsAddress = address?.getAddressLine(0).orEmpty(),
         addressInfo = address?.toString().orEmpty(),
         isWifi = (atLeastQ && connectivityManager?.getNetworkCapabilities(connectivityManager.activeNetwork)
@@ -251,21 +246,21 @@ private fun ComponentActivity.getDeviceInfo(): DeviceInfo {
         mac = getWifiMac(), sdCard = sdCardInfo.first, unUseSdCard = sdCardInfo.second,
         resolution = "${metric.bounds.width() - insets.left - insets.right}x${metric.bounds.height() - insets.bottom - insets.top}",
         idfa = "", idfv = "", brand = Build.BRAND.takeIf { it != Build.UNKNOWN }.orEmpty(),
-        ime = { telephonyManager?.let(TelephonyManagerCompat::getImei) }.catchReturn(Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID).orEmpty()),
+        ime = { telephonyManager?.let(TelephonyManagerCompat::getImei).takeIf { it?.isIMEIValid() == true } }.catchReturn(contentResolver.getAndroidID()),
         imeiHistory = {(
                 if (atLeastU) getSystemService<SubscriptionManager>()?.allSubscriptionInfoList
                     ?.filter { SubscriptionManager.isValidSubscriptionId(it.subscriptionId) }
-                    ?.mapNotNull { telephonyManager?.getImeiCompat(it.simSlotIndex).orEmpty() }
+                    ?.mapNotNull { info -> telephonyManager?.getImeiCompat(info.simSlotIndex).takeIf { it?.isIMEIValid() == true }.orEmpty() }
                 else if (atLeastR) getSystemService<SubscriptionManager>()?.completeActiveSubscriptionInfoList
                     ?.filter { SubscriptionManager.isValidSubscriptionId(it.subscriptionId) }
-                    ?.mapNotNull { telephonyManager?.getImeiCompat(it.simSlotIndex).orEmpty() }
+                    ?.mapNotNull { info -> telephonyManager?.getImeiCompat(info.simSlotIndex).takeIf { it?.isIMEIValid() == true }.orEmpty() }
                 else if (atLeastQ) getSystemService<SubscriptionManager>()?.accessibleSubscriptionInfoList
                     ?.filter { SubscriptionManager.isValidSubscriptionId(it.subscriptionId) }
-                    ?.mapNotNull { telephonyManager?.getImeiCompat(it.simSlotIndex).orEmpty() }
+                    ?.mapNotNull { info -> telephonyManager?.getImeiCompat(info.simSlotIndex).takeIf { it?.isIMEIValid() == true }.orEmpty() }
                 else if (atLeastLM) getSystemService<SubscriptionManager>()?.activeSubscriptionInfoList
                     ?.mapNotNull { it.simSlotIndex }?.filter { it != -1 /*SubscriptionManager.INVALID_SIM_SLOT_INDEX*/ }
                     ?.ifEmpty { listOf(SubscriptionManagerCompat.getSlotIndex(getDefaultSubscriptionId())) }
-                    ?.map { telephonyManager?.getImeiCompat(it).orEmpty() }
+                    ?.map { telephonyManager?.getImeiCompat(it).takeIf { it?.isIMEIValid() == true }.orEmpty() }
                 else imeiHistoryFallback)?.filter { it.isBlank() }?.toTypedArray()
         }.catchReturn(imeiHistoryFallback.toTypedArray())
     )
@@ -310,21 +305,20 @@ private fun Context.getAddressBook(): List<Contact> = { mutableObjectListOf<Cont
     }.asList()
 }.catchEmpty()
 
-@RequiresPermission.Read(RequiresPermission(Manifest.permission.READ_CALENDAR))
+@RequiresPermission.Read(RequiresPermission(anyOf = [Manifest.permission.READ_CALENDAR, "com.coloros.permission.READ_COLOROS_CALENDAR"], conditional = true))
 @RequiresPermission(Manifest.permission.GET_ACCOUNTS)
 private fun Context.getCalenderList(): List<Calendar> = {
     mutableObjectListOf<Calendar>().apply {
-        AccountManager.get(applicationContext)?.accounts?.forEach { account ->
-            contentResolver.queryAll(contentUri = CalendarContract.Calendars.CONTENT_URI, projection = arrayOf(CalendarContract.Calendars._ID),
-                selection = arrayOf(CalendarContract.CALLER_IS_SYNCADAPTER, CalendarContract.Calendars.ACCOUNT_NAME, CalendarContract.Calendars.ACCOUNT_TYPE),
-                selectionArgs = arrayOf(true.toString(), account.name, account.type), sortOrder = CalendarContract.Calendars.DEFAULT_SORT_ORDER
-            ).use { calendar -> if (calendar?.moveToNext() == true)
-                contentResolver.queryAll(contentUri = CalendarContract.Events.CONTENT_URI, projection = arrayOf(
-                    CalendarContract.Events.TITLE, CalendarContract.Events._ID, CalendarContract.Events.DTEND,
-                    CalendarContract.Events.DTSTART, CalendarContract.Events.DESCRIPTION), selection = arrayOf(CalendarContract.Events.CALENDAR_ID),
-                    selectionArgs = arrayOf(calendar.getLongOrNull(calendar.getColumnIndex(CalendarContract.Calendars._ID)).toString())
-                ).use { cursor ->
-                    while (cursor?.moveToNext() == true) cursor.getLongOrNull(cursor.getColumnIndex(CalendarContract.Events._ID))?.let { id -> add(Calendar(eventId = id,
+        fun getEventsFromStore(authority: String = CalendarContract.Events.CONTENT_URI.authority!!,
+                               projection: Array<String>? = arrayOf(CalendarContract.Events.TITLE,
+                                   CalendarContract.Events._ID, CalendarContract.Events.DTEND,
+                                   CalendarContract.Events.DTSTART, CalendarContract.Events.DESCRIPTION),
+                               selection: Array<String?>? = emptyArray(), selectionArgs: Array<String?>? = emptyArray(),
+                               addCondition: (id: Long) -> Boolean = { true }) =
+            contentResolver.queryAll(contentUri = CalendarContract.Events.CONTENT_URI.buildUpon().authority(authority).build(),
+                projection = projection, selection = selection, selectionArgs = selectionArgs).use { cursor ->
+                while (cursor?.moveToNext() == true) cursor.getLongOrNull(cursor.getColumnIndex(CalendarContract.Events._ID))?.let { id ->
+                    if (addCondition.invoke(id)) add(Calendar(eventId = id,
                         eventTitle = cursor.getStringOrNull(cursor.getColumnIndex(CalendarContract.Events.TITLE)).orEmpty(),
                         endTime = cursor.getLongOrNull(cursor.getColumnIndex(CalendarContract.Events.DTEND)) ?: -1L,
                         startTime = cursor.getLongOrNull(cursor.getColumnIndex(CalendarContract.Events.DTSTART)) ?: -1L,
@@ -336,33 +330,23 @@ private fun Context.getCalenderList(): List<Calendar> = {
                                     method = it.getIntOrNull(it.getColumnIndex(CalendarContract.Reminders.METHOD)),
                                     minutes = it.getIntOrNull(it.getColumnIndex(CalendarContract.Reminders.MINUTES)),
                                     reminderId = it.getLongOrNull(it.getColumnIndex(CalendarContract.Reminders._ID))))
-                                }
                             }
-                        ))
-                    }
+                        }
+                    ))
                 }
             }
-        }
-        contentResolver.queryAll(contentUri = CalendarContract.Events.CONTENT_URI, projection = arrayOf(
-                CalendarContract.Events.TITLE, CalendarContract.Events._ID, CalendarContract.Events.DTEND,
-                CalendarContract.Events.DTSTART, CalendarContract.Events.DESCRIPTION)).use { cursor -> while (cursor?.moveToNext() == true)
-            cursor.getLongOrNull(cursor.getColumnIndex(CalendarContract.Events._ID))?.let { id -> if (count { it.eventId == id } == 0) add(Calendar(eventId = id,
-                eventTitle = cursor.getStringOrNull(cursor.getColumnIndex(CalendarContract.Events.TITLE)).orEmpty(),
-                endTime = cursor.getLongOrNull(cursor.getColumnIndex(CalendarContract.Events.DTEND)) ?: -1L,
-                startTime = cursor.getLongOrNull(cursor.getColumnIndex(CalendarContract.Events.DTSTART)) ?: -1L,
-                des = cursor.getStringOrNull(cursor.getColumnIndex(CalendarContract.Events.DESCRIPTION)).orEmpty(),
-                reminders = mutableListOf<Reminder>().apply {
-                    CalendarContract.Reminders.query(contentResolver, id, arrayOf(CalendarContract.Reminders.METHOD,
-                        CalendarContract.Reminders.MINUTES, CalendarContract.Reminders._ID)).use {
-                        while (it?.moveToNext() == true) add(Reminder(eventId = id,
-                            method = it.getIntOrNull(it.getColumnIndex(CalendarContract.Reminders.METHOD)),
-                            minutes = it.getIntOrNull(it.getColumnIndex(CalendarContract.Reminders.MINUTES)),
-                            reminderId = it.getLongOrNull(it.getColumnIndex(CalendarContract.Reminders._ID)))
-                        )
-                    }
-                }))
+        AccountManager.get(applicationContext)?.accounts?.forEach { account ->
+            contentResolver.queryAll(contentUri = CalendarContract.Calendars.CONTENT_URI, projection = arrayOf(CalendarContract.Calendars._ID),
+                selection = arrayOf(CalendarContract.CALLER_IS_SYNCADAPTER, CalendarContract.Calendars.ACCOUNT_NAME, CalendarContract.Calendars.ACCOUNT_TYPE),
+                selectionArgs = arrayOf(true.toString(), account.name, account.type), sortOrder = CalendarContract.Calendars.DEFAULT_SORT_ORDER
+            ).use { calendar -> if (calendar?.moveToNext() == true) getEventsFromStore(
+                selection = arrayOf(CalendarContract.Events.CALENDAR_ID),
+                selectionArgs = arrayOf(calendar.getLongOrNull(calendar.getColumnIndex(CalendarContract.Calendars._ID)).toString()))
             }
         }
+        getEventsFromStore(addCondition = { id -> count { it.eventId == id } == 0 })
+        if (isColorOS() && (packageManager.getPackageInfoCompat("com.coloros.calendar")?.versionCode ?: -1) >= 7001000)
+            getEventsFromStore(authority = "com.coloros.calendar")
     }.asList()
 }.catchEmpty()
 
@@ -436,9 +420,17 @@ private fun Context.getCallLog(): List<CallRecords> = {
     }.asList()
 }.catchEmpty()
 
-fun ExtensionModel.toJson(): String = Moshi.Builder().add(ObjectListAdapterFactory()).build()
-    .adapter(ExtensionModel::class.java).nullSafe().lenient()
-    .toJson(this)
+val serializer by lazy {
+    Json {
+        isLenient = true
+        prettyPrint = true
+        explicitNulls = false
+        encodeDefaults = true
+        ignoreUnknownKeys = true
+        allowStructuredMapKeys = true
+        allowSpecialFloatingPointValues = true
+    }
+}
 
 @RequiresPermission.Write(RequiresPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE, conditional = true))
 fun String?.saveFileToDownload(fileName: String, contentResolver: ContentResolver = appCtx.contentResolver) {
@@ -459,7 +451,7 @@ fun String?.saveFileToDownload(fileName: String, contentResolver: ContentResolve
             contentResolver.update(uri, model, null, null)
         }
     } else FileChannel.open(Path(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).absolutePath,
-        fileName), StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE, StandardOpenOption.READ).use {
+        fileName), StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE).use {
         it.write(buffer)
         it.force(false)
     }

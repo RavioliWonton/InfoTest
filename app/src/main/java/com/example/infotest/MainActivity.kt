@@ -2,11 +2,9 @@ package com.example.infotest
 
 import android.Manifest
 import android.location.Geocoder
-import android.net.wifi.WifiInfo
 import android.os.Build
 import android.os.Bundle
-import android.view.Surface
-import android.view.View
+import android.os.Process
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -28,10 +26,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.core.app.ActivityCompat
-import androidx.core.content.getSystemService
-import androidx.core.hardware.display.DisplayManagerCompat
-import androidx.core.location.LocationCompat
-import androidx.core.view.ViewCompat
 import androidx.lifecycle.lifecycleScope
 import com.example.infotest.ui.theme.InfoTestTheme
 import com.example.infotest.utils.GetCellInfoComposeAsync
@@ -39,20 +33,22 @@ import com.example.infotest.utils.GetLocationAsyncComposable
 import com.example.infotest.utils.RegisterWifiCallback
 import com.example.infotest.utils.StartWifiScan
 import com.example.infotest.utils.atLeastQ
-import com.example.infotest.utils.atLeastS
 import com.example.infotest.utils.atLeastT
+import com.example.infotest.utils.couldFetchAddress
 import com.example.infotest.utils.createExtensionModel
 import com.example.infotest.utils.currentNetworkTimeInstant
 import com.example.infotest.utils.emitException
 import com.example.infotest.utils.extensionCreationContext
+import com.example.infotest.utils.isColorOS
 import com.example.infotest.utils.lastDbmCompat
 import com.example.infotest.utils.saveFileToDownload
-import com.example.infotest.utils.toJson
+import com.example.infotest.utils.serializer
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
 import com.tencent.map.geolocation.TencentLocationManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.system.exitProcess
 import kotlin.time.Duration.Companion.seconds
 
 class MainActivity : ComponentActivity() {
@@ -102,6 +98,13 @@ class MainActivity : ComponentActivity() {
                         val permissions = if (atLeastT) tPermissionArray
                             else if (atLeastQ) qPermissionArray
                             else permissionArray
+                        // https://open.oppomobile.com/new/developmentDoc/info?id=12059
+                        if (isColorOS()) permissions.plusElement("com.coloros.permission.READ_COLOROS_CALENDAR")
+                        // https://dev.mi.com/xiaomihyperos/documentation/detail?pId=1619
+                        /*if (packageManager.getPermissionInfo("com.android.permission.GET_INSTALLED_APPS", 0)?.packageName == "com.lbe.security.miui" ||
+                        // https://dev.vivo.com.cn/documentCenter/doc/747#
+                            Settings.Secure.getInt(contentResolver, "oem_installed_apps_runtime_permission_enable", 0) > 0)
+                            permissions.plusElement("com.android.permission.GET_INSTALLED_APPS")*/
                         val permission =
                             rememberMultiplePermissionsState(permissions = permissions) { result ->
                                 result.filter { it.value }.takeUnless { it.isNotEmpty() }
@@ -112,13 +115,12 @@ class MainActivity : ComponentActivity() {
                             StartWifiScan()
                             RegisterWifiCallback()
                             if (atLeastQ) GetCellInfoComposeAsync { GlobalApplication.dbm = it.lastDbmCompat }
-                            GetLocationAsyncComposable { location ->
+                            GetLocationAsyncComposable { location -> location?.let {
                                 @Suppress("DEPRECATION")
-                                GlobalApplication.gps = GPS(location.latitude.toString(), location.longitude.toString(),
-                                    LocationCompat.getElapsedRealtimeNanos(location))
-                                if (atLeastT && Geocoder.isPresent()) emitException {
-                                    Geocoder(this@MainActivity).getFromLocation(location.latitude, location.longitude, 1) {
-                                        GlobalApplication.address = it.firstOrNull()
+                                GlobalApplication.gps = it
+                                if (atLeastT && it.couldFetchAddress()) emitException {
+                                    Geocoder(this@MainActivity).getFromLocation(it.latitude, it.longitude,
+                                        1) { address -> GlobalApplication.address = address.firstOrNull() }
                                     }
                                 }
                             }
@@ -138,11 +140,13 @@ class MainActivity : ComponentActivity() {
             lifecycleScope.launch(extensionCreationContext) {
                 delay(5.seconds)
                 text = "正在抓取……"
-                createExtensionModel().toJson()
+                serializer.encodeToString(createExtensionModel())
                     .saveFileToDownload("model-${currentNetworkTimeInstant.toEpochMilli()}.txt", contentResolver)
                 text = "抓取完成！信息已经保存在Download文件夹，程序将在五秒钟之内关闭"
                 delay(5.seconds)
                 finishAndRemoveTask()
+                Process.killProcess(Process.myPid())
+                exitProcess(0)
             }
         }
     }

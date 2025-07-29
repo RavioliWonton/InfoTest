@@ -242,11 +242,12 @@ fun Context.getWifiMac(): String = {(
         ?: { getSystemService<DevicePolicyManager>()?.getWifiMacAddress(null) }.catchEmpty()
     else if (atLeastM) listOf("/sys/class/net/wlan0/address", "/sys/class/net/eth0/address").filter { Path(it).exists() }
         .firstNotNullOfOrNull { address -> execCommand("cat", address)?.bufferedReader()?.use { it.readLine() } }
-    else getWifiConnectionInfo()?.macAddress)?.takeIf { it.isNotBlank() && it != "02:00:00:00:00:00" }
-    ?: applicationContext.getSystemService<WifiManager>()?.configuredNetworks?.firstOrNull { it.status == WifiConfiguration.Status.CURRENT }?.BSSID.orEmpty()
+    else getWifiConnectionInfo()?.macAddress)?.takeIf { it.isNotBlank() && it != "02:00:00:00:00:00" && !it.equals("00:90:4C:11:22:33", true) }
+    ?: applicationContext.getSystemService<WifiManager>()?.configuredNetworks?.firstOrNull { it.status == WifiConfiguration.Status.CURRENT }?.let {
+        if (atLeastQ && (atLeastT && it.macRandomizationSetting != WifiConfiguration.RANDOMIZATION_NONE)) it.randomizedMacAddress.toOuiString() else it.BSSID
+    }.orEmpty()
 }.catchEmpty()
 
-@OptIn(ExperimentalStdlibApi::class)
 private fun ByteArray?.formatMac(): String? = {
     takeIf { this?.size == 6 }?.toHexString(HexFormat { bytes.byteSeparator = ":" })
 }.catchReturnNull()

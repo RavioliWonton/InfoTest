@@ -45,5 +45,13 @@
 -dontwarn  android.net.wifi.WifiManager
 -dontnote ct.**
 
-## For HiHonor OAID
+## for HiHonor OAID
 -keep class com.hihonor.**{*;}
+
+# from https://developer.android.com/develop/ui/compose/tooling/tracing#apk_size_overhead
+-assumenosideeffects public class androidx.compose.runtime.ComposerKt {
+   boolean isTraceInProgress();
+   void traceEventStart(int,int,int,java.lang.String);
+   void traceEventStart(int,java.lang.String);
+   void traceEventEnd();
+}

@@ -12,12 +12,11 @@ import androidx.annotation.RequiresExtension
 import androidx.core.net.TrafficStatsCompat
 import com.getkeepsafe.relinker.ReLinker
 import com.google.android.gms.net.CronetProviderInstaller
-import com.squareup.moshi.Moshi
-import com.squareup.moshi.adapter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerializationException
 import okio.Buffer
 import org.chromium.net.CronetEngine
 import org.chromium.net.CronetException
@@ -32,7 +31,7 @@ import javax.net.ssl.HttpsURLConnection
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-private const val DEFAULT_BUFFER_SIZE = 16 * 1024;
+private const val DEFAULT_BUFFER_SIZE = 16 * 1024
 
 enum class RequestMethod {
     GET,
@@ -60,7 +59,6 @@ private val cronetEngine by lazy(LazyThreadSafetyMode.PUBLICATION) {
         })
         .build() as ExperimentalCronetEngine
 }
-val moshi by lazy(LazyThreadSafetyMode.PUBLICATION) { Moshi.Builder().build() }
 
 suspend inline fun <reified T> String.getResponseObject(method: RequestMethod = RequestMethod.POST,
                                                         encoding: Charset = StandardCharsets.UTF_8,
@@ -68,11 +66,12 @@ suspend inline fun <reified T> String.getResponseObject(method: RequestMethod = 
                                                         data: String? = null) =
     getResponseObject<T>(method, encoding, headers, data?.toByteArray(encoding))
 @OptIn(ExperimentalStdlibApi::class)
+@Throws(SerializationException::class, IllegalArgumentException::class)
 suspend inline fun <reified T> String.getResponseObject(method: RequestMethod = RequestMethod.POST,
-                                         encoding: Charset = StandardCharsets.UTF_8,
-                                         headers: Map<String, String> = mapOf(),
-                                         data: ByteArray? = null) =
-    moshi.adapter<T>().fromJson(getResponseString(method, encoding, headers, data))
+                                                              encoding: Charset = StandardCharsets.UTF_8,
+                                                              headers: Map<String, String> = mapOf(),
+                                                              data: ByteArray? = null) =
+    serializer.decodeFromString<T>(getResponseString(method, encoding, headers, data))
 suspend fun String.getResponseString(method: RequestMethod = RequestMethod.POST,
                                      encoding: Charset = StandardCharsets.UTF_8,
                                      headers: Map<String, String> = mapOf(),
@@ -87,7 +86,7 @@ suspend fun String.getResponseBuffer(method: RequestMethod = RequestMethod.POST,
     else getResponseBufferHttpUrlConnection(method.name, headers, data)
 
 @RequiresExtension(extension = Build.VERSION_CODES.S, version = 7)
-private suspend fun String.getResponseBufferHttpEngine(method: String, headers: Map<String, String>, data: ByteArray? = null) = suspendCancellableCoroutine<Buffer> { cont ->
+private suspend fun String.getResponseBufferHttpEngine(method: String, headers: Map<String, String>, data: ByteArray? = null) = suspendCancellableCoroutine { cont ->
     httpEngine.newUrlRequestBuilder(this, Dispatchers.IO.asExecutor(), object : UrlRequest.Callback {
         private val buffer = Buffer()
         override fun onRedirectReceived(request: UrlRequest, info: UrlResponseInfo, newLocationUrl: String) =
@@ -104,7 +103,7 @@ private suspend fun String.getResponseBufferHttpEngine(method: String, headers: 
             cont.resume(buffer)
         override fun onFailed(request: UrlRequest, info: UrlResponseInfo?, error: HttpException) =
             cont.resumeWithException(error)
-        override fun onCanceled(request: UrlRequest, info: UrlResponseInfo?) = cont.cancel() as Unit
+        override fun onCanceled(request: UrlRequest, info: UrlResponseInfo?) { cont.cancel() }
     }).setHttpMethod(method).setCacheDisabled(true).apply {
         headers.forEach { addHeader(it.key, it.value) }
         data?.let {
@@ -120,7 +119,7 @@ private suspend fun String.getResponseBufferHttpEngine(method: String, headers: 
     }.build().start()
 }
 @Suppress("DEPRECATION")
-private suspend fun String.getResponseBufferCronet(method: String, headers: Map<String, String>, data: ByteArray? = null) = suspendCancellableCoroutine<Buffer> { cont ->
+private suspend fun String.getResponseBufferCronet(method: String, headers: Map<String, String>, data: ByteArray? = null) = suspendCancellableCoroutine { cont ->
     cronetEngine.newUrlRequestBuilder(this, object : org.chromium.net.UrlRequest.Callback() {
         private val buffer = Buffer()
         override fun onRedirectReceived(request: org.chromium.net.UrlRequest?,
