@@ -260,7 +260,7 @@ private fun ComponentActivity.getDeviceInfo(): DeviceInfo {
                 else if (atLeastLM) getSystemService<SubscriptionManager>()?.activeSubscriptionInfoList
                     ?.mapNotNull { it.simSlotIndex }?.filter { it != -1 /*SubscriptionManager.INVALID_SIM_SLOT_INDEX*/ }
                     ?.ifEmpty { listOf(SubscriptionManagerCompat.getSlotIndex(getDefaultSubscriptionId())) }
-                    ?.map { telephonyManager?.getImeiCompat(it).takeIf { it?.isIMEIValid() == true }.orEmpty() }
+                    ?.map { index -> telephonyManager?.getImeiCompat(index).takeIf { it?.isIMEIValid() == true }.orEmpty() }
                 else imeiHistoryFallback)?.filter { it.isBlank() }?.toTypedArray()
         }.catchReturn(imeiHistoryFallback.toTypedArray())
     )

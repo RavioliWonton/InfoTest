@@ -62,8 +62,8 @@ class GlobalApplication: Application() {
         //TencentLocationManagerOptions.setExtraKey("TencentMapDemo,MYUH4-5J3J4-Y7Z52-3XNSL-YT6SR")
         TencentLocationManagerOptions.setDebuggable(isDebug)
         if (isGoogleServiceAvailable()) {
-            GooglePlayServicesUtil.useBackgroundThreadExecutorForBindService()
-            GooglePlayServicesUtil.useBackgroundThreadForConnectionCallback()
+            //GooglePlayServicesUtil.useBackgroundThreadExecutorForBindService()
+            //GooglePlayServicesUtil.useBackgroundThreadForConnectionCallback()
             ProviderInstaller.installIfNeededAsync(this, object : ProviderInstaller.ProviderInstallListener {
                 override fun onProviderInstallFailed(errorCode: Int, recoveryIntent: Intent?) {
                     if (GoogleApiAvailabilityLight.getInstance().isUserResolvableError(errorCode))

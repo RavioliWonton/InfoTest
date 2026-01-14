@@ -61,17 +61,17 @@ object Constants {
 @Suppress("UNCHECKED_CAST")
 private object SettingCache {
     val SECURE_SET by lazy {
-        { getClassOrNull("android.provider.Settings\$Global")?.let {
+        { getClassOrNull($$"android.provider.Settings$Global")?.let {
             it.getAccessibleField("MOVED_TO_SECURE", true)?.get(it) as? HashSet<String>
         } }.catchReturnNull()
     }
     val LOCK_SET by lazy {
-        { getClassOrNull("android.provider.Settings\$Secure")?.let {
+        { getClassOrNull($$"android.provider.Settings$Secure")?.let {
             it.getAccessibleField("MOVED_TO_LOCK_SETTINGS", true)?.get(it) as? HashSet<String>
         } }.catchReturnNull()
     }
     val GLOBAL_SET by lazy {
-        { getClassOrNull("android.provider.Settings\$Secure")?.let {
+        { getClassOrNull($$"android.provider.Settings$Secure")?.let {
             it.getAccessibleField("MOVED_TO_GLOBAL", true)?.get(it) as? HashSet<String>
         } }.catchReturnNull()
     }
@@ -351,20 +351,20 @@ suspend inline fun <reified R> TrustedTimeClient.use(block: suspend (TrustedTime
 }
 
 fun ContentResolver.getSecureSettingStringForUser(name: String, userId: Int = getUserIdByReflection(), defaultValue: String? = null) = {
-    getClassOrNull("android.provider.Settings\$Secure")?.getDeclaredAccessibleMethod("getStringForUser",
+    getClassOrNull($$"android.provider.Settings$Secure")?.getDeclaredAccessibleMethod("getStringForUser",
         ContentResolver::class.java, String::class.java, Int::class.java)
         ?.invoke(null, this, name, userId) as String? }.catchReturnNull(defaultValue)
 
 fun ContentResolver.getSecureSettingStringForUserViaLowLevel(name: String, userId: Int = getUserIdByReflection(), defaultValue: String? = null) = {
-    if (SettingCache.GLOBAL_SET?.contains(name) == true) getClassOrNull("android.provider.Settings\$Global")
+    if (SettingCache.GLOBAL_SET?.contains(name) == true) getClassOrNull($$"android.provider.Settings$Global")
         ?.getDeclaredAccessibleMethod("getStringForUser", ContentResolver::class.java, String::class.java, Int::class.java)
         ?.invoke(null, this, name, userId) as String?
-    else if (SettingCache.LOCK_SET?.contains(name) == true) getClassOrNull("com.android.internal.widget.ILockSettings\$Stub")
+    else if (SettingCache.LOCK_SET?.contains(name) == true) getClassOrNull($$"com.android.internal.widget.ILockSettings$Stub")
         ?.getDeclaredAccessibleMethod("asInterface", IBinder::class.java)
         ?.invoke(null, getClassOrNull("android.os.ServiceManager")?.getDeclaredAccessibleMethod("getService", String::class.java)
             ?.invoke(null, "lock_settings"))?.takeIf { Process.myUid() != Process.SYSTEM_UID }?.javaClass?.getDeclaredAccessibleMethod("getString",
             String::class.java, String::class.java, Int::class.java)?.invoke(null, name, defaultValue, userId) as String?
-    else getClassOrNull("android.provider.Settings\$Secure")
+    else getClassOrNull($$"android.provider.Settings$Secure")
         ?.getAccessibleField("sNameValueCache", true)?.get(null)?.javaClass
         ?.getDeclaredAccessibleMethod("getStringForUser", ContentResolver::class.java, String::class.java, Int::class.java)
         ?.invoke(null, this, name, userId) as String?

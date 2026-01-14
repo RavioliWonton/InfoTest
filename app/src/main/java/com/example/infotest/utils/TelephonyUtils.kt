@@ -110,7 +110,7 @@ fun Context.getDeviceIdCompat(): String = {
 }.catchEmpty()
 @RequiresPermission(anyOf = [Manifest.permission.READ_PHONE_STATE, "android.permission.READ_PRIVILEGED_PHONE_STATE"], conditional = true)
 fun Context.getDeviceIdViaTransaction(isViaTelephony: Boolean = true) = {
-    (getClassOrNull(if (isViaTelephony) "com.android.internal.telephony.ITelephony\$Stub" else "com.android.internal.telephony.IPhoneSubInfo\$Stub")
+    (getClassOrNull(if (isViaTelephony) $$"com.android.internal.telephony.ITelephony$Stub" else $$"com.android.internal.telephony.IPhoneSubInfo$Stub")
         ?.getDeclaredAccessibleMethod("asInterface", IBinder::class.java)
         ?.invoke(null, getClassOrNull("android.os.ServiceManager")?.getDeclaredAccessibleMethod("getService",
             String::class.java)?.invoke(null, if (isViaTelephony) Context.TELEPHONY_SERVICE else "iphonesubinfo")) as IBinder?)?.let {
@@ -143,7 +143,7 @@ fun Context.getDeviceIdViaTransaction(isViaTelephony: Boolean = true) = {
 }.catchEmpty()
 @RequiresPermission(anyOf = [Manifest.permission.READ_PHONE_STATE, "android.permission.READ_PRIVILEGED_PHONE_STATE"], conditional = true)
 fun Context.getDeviceIdViaBinder(isViaTelephony: Boolean = true) = {
-    getClassOrNull(if (isViaTelephony) "com.android.internal.telephony.ITelephony\$Stub" else "com.android.internal.telephony.IPhoneSubInfo\$Stub")
+    getClassOrNull(if (isViaTelephony) $$"com.android.internal.telephony.ITelephony$Stub" else $$"com.android.internal.telephony.IPhoneSubInfo$Stub")
         ?.getDeclaredAccessibleMethod("asInterface", IBinder::class.java)
         ?.invoke(null, getClassOrNull("android.os.ServiceManager")?.getDeclaredAccessibleMethod("getService",
             String::class.java)?.invoke(null, if (isViaTelephony) Context.TELEPHONY_SERVICE else "iphonesubinfo"))?.javaClass?.let {

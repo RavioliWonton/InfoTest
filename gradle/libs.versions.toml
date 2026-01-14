@@ -1,17 +1,18 @@
 [versions]
 androidVersion = "9.1.0-alpha04"
 androidCacheFixVersion = "3.0.3"
+cronetApiVersion = "143.7445.0"
 kspVersion = "2.3.3"
 moshixVersion = "0.33.0"
 dependenciesUpdateVersion = "0.53.0"
 dexcountVersion = "4.0.0"
 androidRetrofixVersion = "1.0.0"
-activityVersion = "1.12.0-alpha05"
+activityVersion = "1.12.2"
 adsAdservicesVersion = "1.1.0-beta12"
-annotationExperimentalVersion = "1.5.1"
+annotationExperimentalVersion = "1.6.0-alpha01"
 annotationVersion = "1.9.1"
 benchmarkVersion = "1.5.0-alpha01"
-composeVersion = "1.9.5"
+composeVersion = "1.11.0-alpha02"
 collectionVersion = "1.6.0-alpha01"
 concurrentFuturesKtxVersion = "1.3.0"
 coordinatorlayoutVersion = "1.3.0"
@@ -19,20 +20,20 @@ coreKtxVersion = "1.17.0"
 customviewVersion = "1.2.0"
 desugarLibsVersion = "2.1.5"
 espressoCoreVersion = "3.7.0"
-exifinterfaceVersion = "1.4.1"
+exifinterfaceVersion = "1.4.2"
 fragmentVersion = "1.8.9"
 coroutinesVersion = "1.10.2"
 junitVersion = "1.3.0"
 kotlinxSerializationVersion = "1.10.0-RC"
-lifecycleVersion = "2.9.4"
+lifecycleVersion = "2.10.0"
 loaderVersion = "1.1.0"
-composeMaterial3Version = "1.4.0"
+composeMaterial3Version = "1.5.0-alpha11"
 playServicesAdsIdentifierVersion = "18.2.0"
 playServicesAppsetVersion = "16.1.0"
-playServicesBaseVersion = "18.7.0"
-playServicesCronetVersion = "18.1.0"
+playServicesBaseVersion = "18.10.0"
+playServicesCronetVersion = "18.1.1"
 playServicesLocationVersion = "21.3.0"
-playServicesTasksVersion = "18.3.0"
+playServicesTasksVersion = "18.4.1"
 playServicesTimeVersion = "16.0.1"
 profileinstallerVersion = "1.4.1"
 rulesVersion = "1.7.0"
@@ -43,8 +44,7 @@ splittiesVersion = "3.0.0"
 accompanistVersion = "0.37.3"
 okioVersion = "3.16.4"
 moshiVersion = "1.15.2"
-#noinspection NewerVersionAvailable
-mmkvVersion = "1.3.16" # 2.0.0+ drop minSdk < 23 and armv7 support
+mmkvVersion = "2.3.0"
 relinkerVersion = "1.4.5"
 proguardVersion = "7.8.2"
 hmsVersion = "3.4.83.301"
@@ -63,7 +63,7 @@ junit = "4.13.2"
 uiautomatorVersion = "2.4.0-alpha07"
 versionedparcelableVersion = "1.2.1"
 viewpagerVersion = "1.1.0"
-windowVersion = "1.5.0-beta01"
+windowVersion = "1.6.0-alpha01"
 
 [libraries]
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityVersion" }
@@ -103,6 +103,7 @@ androidx-test-uiautomator = { module = "androidx.test.uiautomator:uiautomator", 
 androidx-versionedparcelable = { module = "androidx.versionedparcelable:versionedparcelable", version.ref = "versionedparcelableVersion" }
 androidx-viewpager = { module = "androidx.viewpager:viewpager", version.ref = "viewpagerVersion" }
 androidx-window = { module = "androidx.window:window", version.ref = "windowVersion" }
+cronet-api = { module = "org.chromium.net:cronet-api", version.ref = "cronetApiVersion" }
 desugar-libs-nio = { module = "com.android.tools:desugar_jdk_libs_nio", version.ref = "desugarLibsVersion" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutinesVersion" }
 kotlinx-coroutines-play-services = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-play-services", version.ref = "coroutinesVersion" }

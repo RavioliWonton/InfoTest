@@ -78,7 +78,7 @@ private fun Context.isPad() = (getPhysicalSize() ?: -1f) >= 7.0f ||
         (resources.configuration.screenLayout and Configuration.SCREENLAYOUT_SIZE_MASK) >= Configuration.SCREENLAYOUT_SIZE_LARGE
 
 @Suppress("UnusedReceiverParameter")
-fun Context.getIsRooted() = { Process.myUid() == if (atLeastQ) Process.ROOT_UID else 0
+fun Context.getIsRooted() = { Process.myUid() == (if (atLeastQ) Process.ROOT_UID else 0) ||
     //(Build.TAGS != Build.UNKNOWN) && Build.TAGS.contains("test-keys") || false positive for custom rom
     arrayOf("/system/bin/", "/system/xbin/", "/sbin/", "/system/sd/xbin/",
             "/system/bin/failsafe/", "/data/local/xbin/", "/data/local/bin/",
