@@ -35,7 +35,10 @@ private const val DEFAULT_BUFFER_SIZE = 16 * 1024
 
 enum class RequestMethod {
     GET,
-    POST
+    POST,
+    DELETE,
+    HEAD,
+    PUT
 }
 
 @delegate:RequiresExtension(extension = Build.VERSION_CODES.S, version = 7)
@@ -81,9 +84,9 @@ suspend fun String.getResponseBuffer(method: RequestMethod = RequestMethod.POST,
                                      headers: Map<String, String> = mapOf(),
                                      data: ByteArray? = null) =
     if (atLeastU || atLeastS && SdkExtensions.getExtensionVersion(Build.VERSION_CODES.S) >= 7)
-        getResponseBufferHttpEngine(method.name, headers, data)
-    else if (CronetProviderInstaller.isInstalled()) getResponseBufferCronet(method.name, headers, data)
-    else getResponseBufferHttpUrlConnection(method.name, headers, data)
+        getResponseBufferHttpEngine(method.name.uppercase(), headers, data)
+    else if (CronetProviderInstaller.isInstalled()) getResponseBufferCronet(method.name.uppercase(), headers, data)
+    else getResponseBufferHttpUrlConnection(method.name.uppercase(), headers, data)
 
 @RequiresExtension(extension = Build.VERSION_CODES.S, version = 7)
 private suspend fun String.getResponseBufferHttpEngine(method: String, headers: Map<String, String>, data: ByteArray? = null) = suspendCancellableCoroutine { cont ->

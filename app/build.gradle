@@ -7,7 +7,7 @@ import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
 plugins {
     alias libs.plugins.android.application
     alias libs.plugins.android.cache.fix
-    alias libs.plugins.kotlin.android
+    //alias libs.plugins.kotlin.android
     alias libs.plugins.kotlin.compose
     //alias libs.plugins.ksp
     alias libs.plugins.kotlin.serialization
@@ -16,13 +16,18 @@ plugins {
     alias libs.plugins.dexcount
     //alias libs.plugins.android.retrofix
     alias libs.plugins.androidx.baselineprofile
-    id 'app.cash.licensee' version '1.13.0'
+    id 'app.cash.licensee' version '1.14.1'
     id 'kotlin-parcelize'
     id 'project-report'
 }
 
 android {
-    compileSdk = 36
+    compileSdk {
+        version = release(36) {
+            it.minorApiLevel = 1
+        }
+    }
+    buildToolsVersion = '36.1.0'
 
     defaultConfig {
         applicationId = 'com.example.infotest'
@@ -186,9 +191,9 @@ dependencies {
 
 kotlin {
     compilerOptions {
-        jvmTarget = JvmTarget.JVM_21
-        languageVersion = KotlinVersion.KOTLIN_2_3
-        apiVersion = KotlinVersion.KOTLIN_2_3
+        //jvmTarget = JvmTarget.JVM_21
+        languageVersion = KotlinVersion.KOTLIN_2_5
+        apiVersion = KotlinVersion.KOTLIN_2_5
         javaParameters = true
         progressiveMode = true
         jvmDefault = JvmDefaultMode.NO_COMPATIBILITY
@@ -197,7 +202,12 @@ kotlin {
     }
 }
 
-tasks.named("dependencyUpdates").configure {
-    checkConstraints = true
-    checkBuildEnvironmentConstraints = true
+tasks.named("dependencyUpdates") {
+    doFirst {
+        gradle.startParameter.parallelProjectExecutionEnabled = false
+    }
+    configure {
+        checkConstraints = true
+        checkBuildEnvironmentConstraints = true
+    }
 }

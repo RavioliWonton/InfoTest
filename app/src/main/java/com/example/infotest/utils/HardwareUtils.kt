@@ -93,7 +93,7 @@ fun Context.getIsSimulator() = {
     (Build.FINGERPRINT.startsWith("google/sdk_gphone_") && Build.FINGERPRINT.endsWith(":user/release-keys")
             && Build.MANUFACTURER == "Google" && Build.PRODUCT.startsWith("sdk_gphone_") && Build.BRAND == "google"
             && Build.MODEL.startsWith("sdk_gphone_"))
-            || getNetworkOperatorNameCompat()?.equals("android", true) == true
+            || getNetworkOperatorNameCompat().equals("android", true)
             // https://stackoverflow.com/a/2923743
             || !isPad() && getSystemService<TelephonyManager>()?.deviceSoftwareVersion == null
             || (getSystemService<SensorManager>()?.getSensorList(Sensor.TYPE_ALL)?.size ?: -1) <= 7

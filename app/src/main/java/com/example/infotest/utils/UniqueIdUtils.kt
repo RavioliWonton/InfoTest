@@ -58,12 +58,11 @@ fun ContentResolver.getAndroidID() =
     }
 
 @OptIn(ExperimentalContracts::class)
-@Suppress("BOUNDS_NOT_ALLOWED_IF_BOUNDED_BY_TYPE_PARAMETER")
-inline fun <C, R> C?.ifNotValidAndroidID(defaultValue: () -> R): R where C : CharSequence, C : R {
+inline fun String?.ifNotValidAndroidID(defaultValue: () -> String): String {
     contract {
         callsInPlace(defaultValue, InvocationKind.AT_MOST_ONCE)
     }
-    return if (isNullOrBlank() || contentEquals("9774d56d682e549c", true)) defaultValue() else this
+    return if (isNullOrBlank() || contentEquals("9774d56d682e549c", true) || contentEquals("dead00beef", true)) defaultValue() else this
 }
 
 @OptIn(DelicateCoroutinesApi::class)
@@ -255,7 +254,7 @@ private suspend fun Context.processIBinderFromOAIDService(intent: Intent, iface:
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) { queue.trySendBlocking(service) }
         override fun onServiceDisconnected(name: ComponentName?) = Unit
     }
-    if (bindService(intent, connection, Context.BIND_AUTO_CREATE)) try {
+    if (bindService(intent, connection, if (atLeastU) Context.BIND_ABOVE_CLIENT or Context.BIND_AUTO_CREATE else Context.BIND_AUTO_CREATE)) try {
         return iface.invoke(queue.tryReceive().getOrThrow())
     } catch (e: Exception) { e.printStackTrace() } finally {
         unbindService(connection)

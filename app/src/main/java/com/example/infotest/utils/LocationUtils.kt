@@ -114,6 +114,7 @@ private fun Activity.setup(isAccuracy: Boolean = false, isUsingGoogleService: Bo
             setDeviceID(applicationContext, GlobalApplication.gaid)
             coordinateType = TencentLocationManager.COORDINATE_TYPE_WGS84
         }.requestLocationUpdates(TencentLocationRequest.create()
+            .setFirstLocationNeedAddress(true)
             //.setGnssSource(TencentLocationRequest.GNSS_SOURCE_BEIDOU_FIRST)
             .setEnableAntiMock(true).setIndoorLocationMode(true).setRequestLevel(
                 TencentLocationRequest.REQUEST_LEVEL_NAME), object : TencentLocationListener {

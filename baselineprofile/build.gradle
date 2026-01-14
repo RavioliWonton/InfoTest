@@ -1,23 +1,26 @@
 import com.android.build.api.dsl.ManagedVirtualDevice
+import org.jetbrains.kotlin.gradle.dsl.JvmDefaultMode
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
 
 plugins {
     alias(libs.plugins.android.test)
-    alias(libs.plugins.kotlin.android)
+    //alias(libs.plugins.kotlin.android)
     alias(libs.plugins.androidx.baselineprofile)
 }
 
 android {
     namespace = 'com.example.baselineprofile'
-    compileSdk = 36
+    compileSdk {
+        version = release(36) {
+            it.minorApiLevel = 1
+        }
+    }
+    buildToolsVersion = '36.1.0'
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
-    }
-
-    kotlinOptions {
-        jvmTarget = JvmTarget.JVM_21.target
     }
 
     defaultConfig {
@@ -32,7 +35,7 @@ android {
     // Enable the benchmark to run separately from the app process
     experimentalProperties["android.experimental.self-instrumenting"] = true
 
-    testOptions.managedDevices.devices {
+    testOptions.managedDevices.allDevices {
         pixel9Api36(ManagedVirtualDevice) {
             device = 'Pixel 9'
             apiLevel = 36
