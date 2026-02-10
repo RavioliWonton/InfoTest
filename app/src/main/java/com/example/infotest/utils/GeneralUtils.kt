@@ -13,6 +13,7 @@ import android.net.Uri
 import android.os.BaseBundle
 import android.os.Build
 import android.os.IBinder
+import android.os.IInterface
 import android.os.Process
 import android.os.ext.SdkExtensions
 import androidx.annotation.AnyThread
@@ -80,8 +81,8 @@ private object SettingCache {
 val ApplicationInfo.minSdkVersionCompat: Int
     get() = if (atLeastN) minSdkVersion else {
         { appCtx.assets.use { assetManager ->
-            assetManager.openXmlResourceParser(assetManager.javaClass.getAccessibleMethod("addAssetPath", String.Companion::class.java)
-                ?.invoke(assetManager, publicSourceDir) as Int, "AndroidManifest.xml").use {
+            assetManager.openXmlResourceParser(assetManager.javaClass.getAccessibleMethod("addAssetPath", String::class.java)
+                .invoke(assetManager, publicSourceDir) as Int, "AndroidManifest.xml").use {
                     while (it.next() != XmlPullParser.END_DOCUMENT) {
                         if (it.eventType == XmlPullParser.START_TAG && it.name.equals("uses-sdk"))
                             for (i in 0 until it.attributeCount) {
@@ -256,14 +257,14 @@ class ObjectListAdapterFactory: JsonAdapter.Factory {
 
 @AnyThread
 fun getClassOrNull(className: String) =
-    { (Thread.currentThread().contextClassLoader ?: ClassLoader.getSystemClassLoader()).loadClass(className) }.catchReturnNull()
+    { Class.forName(className, false, Thread.currentThread().contextClassLoader) }.catchReturnNull()
 @SafeVarargs
 @Throws(NoSuchMethodException::class)
-fun Class<*>.getAccessibleMethod(name: String, vararg parameterTypes: Class<*> = emptyArray()): Method? =
+fun Class<*>.getAccessibleMethod(name: String, vararg parameterTypes: Class<*> = emptyArray()): Method =
     getMethod(name, *parameterTypes).apply { isAccessible = true }
 @SafeVarargs
 @Throws(NoSuchMethodException::class)
-fun Class<*>.getDeclaredAccessibleMethod(name: String, vararg parameterTypes: Class<*> = emptyArray()): Method? =
+fun Class<*>.getDeclaredAccessibleMethod(name: String, vararg parameterTypes: Class<*> = emptyArray()): Method =
     getDeclaredMethod(name, *parameterTypes).apply { isAccessible = true }
 @SafeVarargs
 fun Class<*>.hasMethod(isDeclared: Boolean, name: String, vararg parameterTypes: Class<*> = emptyArray()): Boolean = {
@@ -277,16 +278,16 @@ fun Class<*>.getAccessibleField(name: String, isDeclared: Boolean = false): Fiel
 fun Class<*>.getAccessibleConstructor(isDeclared: Boolean = false, vararg parameterTypes: Class<*> = emptyArray()): Constructor<out Any>? =
     (if (isDeclared) getDeclaredConstructor(*parameterTypes) else getConstructor(*parameterTypes)).apply { isAccessible = true }
 
-fun Any.getTransactionIdViaReflection(name: String): Int = {
+fun IBinder.getTransactionIdViaReflection(name: String): Int = {
     javaClass.enclosingClass?.getAccessibleField(name, true)?.get(this) as Int?
 }.catchZero()
-fun Any.getInterfaceDescriptorViaReflection(): String = {
-    javaClass.getDeclaredAccessibleMethod("getInterfaceDescriptor")?.invoke(this, emptyArray<Any>()) as String?
+fun IBinder.getInterfaceDescriptorViaReflection(): String = {
+    javaClass.getDeclaredAccessibleMethod("getInterfaceDescriptor").invoke(this, emptyArray<Any>()) as String?
 }.catchEmpty()
 
 fun getSystemProperty(key: String, defaultValue: String? = "") = getClassOrNull("android.os.SystemProperties")
-    ?.getAccessibleMethod("get", String::class.java, String::class.java)?.invoke(null, key, defaultValue) as String?
-fun getSystemPropertyWithFallback(key: String, defaultValue: String? = "") = getSystemProperty(key, defaultValue).takeIf { defaultValue?.isNotBlank() == true && it?.isNotBlank() == true }
+    ?.getAccessibleMethod("get", String::class.java, String::class.java)?.invoke(null, key, defaultValue) as? String
+fun getSystemPropertyWithFallback(key: String, defaultValue: String? = "") = getSystemProperty(key, defaultValue).takeIf { it?.isNotBlank() == true }
     ?: { execCommand("getprop $key")?.use { it.bufferedReader().readLine() } }.catchReturnNull(defaultValue)
 
 @SafeVarargs
@@ -310,10 +311,10 @@ fun String?.toUUIDorNull() = { Uuid.parse(this.orEmpty()) }.catchReturnNull()
 
 fun BaseBundle.getBooleanCompat(key: String, defaultValue: Boolean = false) = {
     if (atLeastLM) getBoolean(key, defaultValue)
-    else get(key) as Boolean? ?: defaultValue
+    else get(key) as? Boolean ?: defaultValue
 }.catchReturn(defaultValue)
 fun BaseBundle.getBooleanArrayCompat(key: String, defaultValue: BooleanArray = booleanArrayOf()) = {
-    (if (atLeastLM) getBooleanArray(key) else get(key) as BooleanArray?) ?: defaultValue
+    (if (atLeastLM) getBooleanArray(key) else get(key) as? BooleanArray) ?: defaultValue
 }.catchReturn(defaultValue)
 
 @Suppress("NewApi")
@@ -323,15 +324,18 @@ fun Array<String>?.anyExistNoFollowingLink(vararg subPath: String = arrayOf()): 
 fun Array<String>?.anyExist(option: LinkOption? = null, vararg subPath: String = arrayOf()): Boolean =
     this?.any { { if (option!= null) Path(it, *subPath).exists(option) else Path(it, *subPath).exists() }.catchFalse() } == true
 
-tailrec fun <T: Context> Context.unwrapUntil(condition: Context.() -> T?): T? = when {
-    this.condition() != null -> this.condition()
-    this is ContextWrapper -> baseContext.unwrapUntil(condition)
+tailrec fun Context.unwrapUntil(predicate: (Context) -> Boolean): Context? = when {
+    predicate(this) -> this
+    this is ContextWrapper -> baseContext.unwrapUntil(predicate)
     else -> null
 }
+inline fun <reified T : Context> Context.unwrapTo(
+    noinline extraCondition: (T) -> Boolean = { true }
+): T? = unwrapUntil { it is T && extraCondition(it) } as? T
 @SafeVarargs
-fun Context.unwrapUntilAnyOrNull(vararg type: Class<out Context>) =
-    unwrapUntil { if (type.any { it.isInstance(this) }) this@unwrapUntilAnyOrNull else null }
-fun Context.findActivity() = unwrapUntil { takeIf { it is Activity && !it.isDestroyed } as Activity }
+fun Context.unwrapToAnyOf(vararg types: Class<out Context>): Context? =
+    unwrapUntil { context -> types.any { it.isInstance(context) } }
+fun Context.findActivity(): Activity? = unwrapTo<Activity> { !it.isDestroyed }
 
 fun isColorOS() = objectListOf("ONEPLUS", "OPPO", "REALME").any { Build.MANUFACTURER.equals(it, true) } ||
         getSystemProperty("ro.build.version.opporom")?.isNotBlank() == true
@@ -353,28 +357,28 @@ suspend inline fun <reified R> TrustedTimeClient.use(block: suspend (TrustedTime
 fun ContentResolver.getSecureSettingStringForUser(name: String, userId: Int = getUserIdByReflection(), defaultValue: String? = null) = {
     getClassOrNull($$"android.provider.Settings$Secure")?.getDeclaredAccessibleMethod("getStringForUser",
         ContentResolver::class.java, String::class.java, Int::class.java)
-        ?.invoke(null, this, name, userId) as String? }.catchReturnNull(defaultValue)
+        ?.invoke(null, this, name, userId) as? String }.catchReturnNull(defaultValue)
 
 fun ContentResolver.getSecureSettingStringForUserViaLowLevel(name: String, userId: Int = getUserIdByReflection(), defaultValue: String? = null) = {
     if (SettingCache.GLOBAL_SET?.contains(name) == true) getClassOrNull($$"android.provider.Settings$Global")
         ?.getDeclaredAccessibleMethod("getStringForUser", ContentResolver::class.java, String::class.java, Int::class.java)
-        ?.invoke(null, this, name, userId) as String?
+        ?.invoke(null, this, name, userId) as? String
     else if (SettingCache.LOCK_SET?.contains(name) == true) getClassOrNull($$"com.android.internal.widget.ILockSettings$Stub")
         ?.getDeclaredAccessibleMethod("asInterface", IBinder::class.java)
         ?.invoke(null, getClassOrNull("android.os.ServiceManager")?.getDeclaredAccessibleMethod("getService", String::class.java)
             ?.invoke(null, "lock_settings"))?.takeIf { Process.myUid() != Process.SYSTEM_UID }?.javaClass?.getDeclaredAccessibleMethod("getString",
-            String::class.java, String::class.java, Int::class.java)?.invoke(null, name, defaultValue, userId) as String?
+            String::class.java, String::class.java, Int::class.java)?.invoke(null, name, defaultValue, userId) as? String
     else getClassOrNull($$"android.provider.Settings$Secure")
         ?.getAccessibleField("sNameValueCache", true)?.get(null)?.javaClass
         ?.getDeclaredAccessibleMethod("getStringForUser", ContentResolver::class.java, String::class.java, Int::class.java)
-        ?.invoke(null, this, name, userId) as String?
+        ?.invoke(null, this, name, userId) as? String
 }.catchReturnNull(defaultValue)
 
 fun getUserIdByReflection() = { getClassOrNull("android.os.UserHandle")
     ?.getDeclaredAccessibleMethod("getUserId", Int::class.java)
     ?.invoke(null, Process.myUid()
         .takeIf { it != if (atLeastQ) Process.INVALID_UID else -1 } ?:
-        if (atLeastQ) Process.ROOT_UID else Process.SYSTEM_UID) as Int? }.catchReturn(0)
+        if (atLeastQ) Process.ROOT_UID else Process.SYSTEM_UID) as? Int }.catchReturn(0)
 
 /*fun String?.retrace(mappingFile: File, isVerbose: Boolean = true) = run {
     Writer.nullWriter().buffered().use {

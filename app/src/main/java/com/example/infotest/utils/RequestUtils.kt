@@ -20,7 +20,7 @@ import kotlinx.serialization.SerializationException
 import okio.Buffer
 import org.chromium.net.CronetEngine
 import org.chromium.net.CronetException
-import org.chromium.net.ExperimentalCronetEngine
+import org.chromium.net.QuicOptions
 import splitties.init.appCtx
 import java.io.IOException
 import java.net.URL
@@ -28,6 +28,8 @@ import java.nio.ByteBuffer
 import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
 import javax.net.ssl.HttpsURLConnection
+import kotlin.concurrent.atomics.AtomicInt
+import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -44,23 +46,22 @@ enum class RequestMethod {
 @delegate:RequiresExtension(extension = Build.VERSION_CODES.S, version = 7)
 private val httpEngine by lazy(LazyThreadSafetyMode.PUBLICATION) {
     HttpEngine.Builder(appCtx)
-        .setEnableHttp2(true)
-        .setEnableQuic(true)
+        .setEnableHttp2(true).setEnableQuic(true).setEnableBrotli(true)
         .setEnableHttpCache(HttpEngine.Builder.HTTP_CACHE_DISABLED, 0L)
         .build()
 }
+@delegate:QuicOptions.Experimental
 private val cronetEngine by lazy(LazyThreadSafetyMode.PUBLICATION) {
-    ExperimentalCronetEngine.Builder(appCtx)
-        .enableHttp2(true)
-        .enableSdch(true)
-        .enableBrotli(true)
+    CronetEngine.Builder(appCtx)
+        .enableHttp2(true).enableBrotli(true).enableQuic(true)
         .enableHttpCache(CronetEngine.Builder.HTTP_CACHE_DISABLED, 0L)
+        .setQuicOptions(QuicOptions.builder().enableTlsZeroRtt(true))
         .setLibraryLoader(object : CronetEngine.Builder.LibraryLoader() {
             override fun loadLibrary(path: String?) {
                 ReLinker.recursively().loadLibrary(appCtx, path)
             }
         })
-        .build() as ExperimentalCronetEngine
+        .build()
 }
 
 suspend inline fun <reified T> String.getResponseObject(method: RequestMethod = RequestMethod.POST,
@@ -88,6 +89,7 @@ suspend fun String.getResponseBuffer(method: RequestMethod = RequestMethod.POST,
     else if (CronetProviderInstaller.isInstalled()) getResponseBufferCronet(method.name.uppercase(), headers, data)
     else getResponseBufferHttpUrlConnection(method.name.uppercase(), headers, data)
 
+@OptIn(ExperimentalAtomicApi::class)
 @RequiresExtension(extension = Build.VERSION_CODES.S, version = 7)
 private suspend fun String.getResponseBufferHttpEngine(method: String, headers: Map<String, String>, data: ByteArray? = null) = suspendCancellableCoroutine { cont ->
     httpEngine.newUrlRequestBuilder(this, Dispatchers.IO.asExecutor(), object : UrlRequest.Callback {
@@ -111,16 +113,27 @@ private suspend fun String.getResponseBufferHttpEngine(method: String, headers: 
         headers.forEach { addHeader(it.key, it.value) }
         data?.let {
             setUploadDataProvider(object : UploadDataProvider() {
+                private val position = AtomicInt(0)
+
                 override fun getLength() = it.size.toLong()
                 override fun read(sink: UploadDataSink, buffer: ByteBuffer) {
-                    buffer.put(it)
-                    sink.onReadSucceeded(false)
+                    minOf(buffer.remaining(), it.size - position.load())
+                        .takeIf { bytesToRead -> bytesToRead > 0 }
+                        ?.let { bytesToRead ->
+                            buffer.put(it, position.load(), bytesToRead)
+                            position.addAndFetch(bytesToRead)
+                        }
+                    sink.onReadSucceeded(it.size - position.load() == 0)
                 }
-                override fun rewind(sink: UploadDataSink) = sink.onRewindSucceeded()
+                override fun rewind(sink: UploadDataSink) {
+                    position.store(0)
+                    sink.onRewindSucceeded()
+                }
             }, Dispatchers.IO.asExecutor())
         }
-    }.build().start()
+    }.build().also { request -> cont.invokeOnCancellation { request.cancel() } }.start()
 }
+@OptIn(ExperimentalAtomicApi::class)
 @Suppress("DEPRECATION")
 private suspend fun String.getResponseBufferCronet(method: String, headers: Map<String, String>, data: ByteArray? = null) = suspendCancellableCoroutine { cont ->
     cronetEngine.newUrlRequestBuilder(this, object : org.chromium.net.UrlRequest.Callback() {
@@ -149,22 +162,33 @@ private suspend fun String.getResponseBufferCronet(method: String, headers: Map<
         headers.forEach { addHeader(it.key, it.value) }
         data?.let {
             setUploadDataProvider(object : org.chromium.net.UploadDataProvider() {
+                private val position = AtomicInt(0)
+
                 override fun getLength() = it.size.toLong()
-                override fun read(sink: org.chromium.net.UploadDataSink?, buffer: ByteBuffer?) {
-                    buffer?.put(it)
-                    sink?.onReadSucceeded(false)
+                override fun read(sink: org.chromium.net.UploadDataSink, buffer: ByteBuffer) {
+                    minOf(buffer.remaining(), it.size - position.load())
+                        .takeIf { bytesToRead -> bytesToRead > 0 }
+                        ?.let { bytesToRead ->
+                            buffer.put(it, position.load(), bytesToRead)
+                            position.addAndFetch(bytesToRead)
+                        }
+                    sink.onReadSucceeded(it.size - position.load() == 0)
                 }
-                override fun rewind(sink: org.chromium.net.UploadDataSink?) =
-                    sink?.onRewindSucceeded() ?: Unit
+                override fun rewind(sink: org.chromium.net.UploadDataSink) {
+                    position.store(0)
+                    sink.onRewindSucceeded()
+                }
             }, Dispatchers.IO.asExecutor())
         }
-    }.setTrafficStatsTag(TrafficStatsCompat.getThreadStatsTag()).build().start()
+    }.setTrafficStatsTag(TrafficStatsCompat.getThreadStatsTag()).build().also { request ->
+        cont.invokeOnCancellation { request.cancel() }
+    }.start()
 }
 private suspend fun String.getResponseBufferHttpUrlConnection(method: String, headers: Map<String, String>, data: ByteArray? = null) =
     withContext(Dispatchers.IO) {
         with(URL(this@getResponseBufferHttpUrlConnection).openConnection() as HttpsURLConnection) {
             doInput = true
-            doOutput = true
+            doOutput = data != null
             defaultUseCaches = false
             requestMethod = method
             instanceFollowRedirects = true
@@ -175,7 +199,7 @@ private suspend fun String.getResponseBufferHttpUrlConnection(method: String, he
             connect()
 
             if (responseCode == HttpsURLConnection.HTTP_OK)
-                return@withContext Buffer().apply { read(inputStream.readBytes()) }
-            else throw IOException(errorStream.readBytes().decodeToString())
+                return@withContext Buffer().apply { write(inputStream.readBytes()) }.also { disconnect() }
+            else throw IOException(errorStream.readBytes().decodeToString().also { disconnect() })
         }
     }

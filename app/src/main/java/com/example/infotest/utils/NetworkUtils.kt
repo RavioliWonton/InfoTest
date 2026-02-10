@@ -47,6 +47,7 @@ import java.time.Instant
 import java.time.temporal.ChronoUnit
 import kotlin.io.path.Path
 import kotlin.io.path.exists
+import kotlin.io.path.readText
 
 @delegate:RequiresApi(Build.VERSION_CODES.R)
 private val emptyWifiScanCallback by lazy {
@@ -240,8 +241,8 @@ fun Context.getWifiMac(): String = {(
     if (atLeastN) (NetworkInterface.getNetworkInterfaces().asSequence().firstOrNull { it.name.equals("wlan0", true) }
         ?: NetworkInterface.getByInetAddress(getWifiLinkInetAddresses()?.firstOrNull()))?.hardwareAddress.formatMac()
         ?: { getSystemService<DevicePolicyManager>()?.getWifiMacAddress(null) }.catchEmpty()
-    else if (atLeastM) listOf("/sys/class/net/wlan0/address", "/sys/class/net/eth0/address").filter { Path(it).exists() }
-        .firstNotNullOfOrNull { address -> execCommand("cat", address)?.bufferedReader()?.use { it.readLine() } }
+    else if (atLeastM) listOf("/sys/class/net/wlan0/address", "/sys/class/net/eth0/address").map { Path(it) }
+        .filter { it.exists() }.firstNotNullOfOrNull { it.readText().trim() }
     else getWifiConnectionInfo()?.macAddress)?.takeIf { it.isNotBlank() && it != "02:00:00:00:00:00" && !it.equals("00:90:4C:11:22:33", true) }
     ?: applicationContext.getSystemService<WifiManager>()?.configuredNetworks?.firstOrNull { it.status == WifiConfiguration.Status.CURRENT }?.let {
         if (atLeastQ && (atLeastT && it.macRandomizationSetting != WifiConfiguration.RANDOMIZATION_NONE)) it.randomizedMacAddress.toOuiString() else it.BSSID

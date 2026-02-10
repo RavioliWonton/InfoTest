@@ -143,8 +143,8 @@ suspend fun Context.getOAID(): String? = when {
         }
     }
     getSystemProperty("ro.odm.manufacturer").equals("PRIZE", true) -> withContext(noExceptionContext) {
-        getSystemService<KeyguardManager>()?.let { manager -> (KeyguardManager::class.java.getDeclaredAccessibleMethod("obtainOaid")?.invoke(manager, emptyArray<Any>()) as String?)
-            .takeIf { KeyguardManager::class.java.getDeclaredAccessibleMethod("isSupported")?.invoke(it, emptyArray<Any>()) == true } }
+        getSystemService<KeyguardManager>()?.let { manager -> (KeyguardManager::class.java.getDeclaredAccessibleMethod("obtainOaid").invoke(manager, emptyArray<Any>()) as String?)
+            .takeIf { KeyguardManager::class.java.getDeclaredAccessibleMethod("isSupported").invoke(it, emptyArray<Any>()) == true } }
     }
     getSystemProperty("ro.build.uiversion")?.isNotBlank() == true -> withContext(noExceptionContext) {
         packageManager.getPackageInfoCompat("com.qiku.id")?.let { info ->
@@ -154,7 +154,7 @@ suspend fun Context.getOAID(): String? = when {
             }
         }?.takeIf { it.isNotBlank() } ?: getSystemProperty("ro.build.uiversion").takeIf { it?.contains("360UI", true) == true }?.let {
             getClassOrNull("android.os.ServiceManager")?.let { clazz ->
-                (clazz.getDeclaredAccessibleMethod("getService", String::class.java)?.invoke(null, "qikuid") as IBinder?).let { ibinder ->
+                (clazz.getDeclaredAccessibleMethod("getService", String::class.java).invoke(null, "qikuid") as IBinder?).let { ibinder ->
                     OAIDInterface.QikuID(ibinder, true).let { iter -> iter.getID().takeIf { iter.isSupport } }
                 }
             }
@@ -208,7 +208,7 @@ suspend fun Context.getOAID(): String? = when {
     objectListOf("XIAOMI", "BLACKSHARK").any { Build.MANUFACTURER.equals(it, true) } || getSystemProperty("ro.miui.ui.version.name")?.isNotBlank() == true -> withContext(noExceptionContext) {
         // IdentifierManager.getOAID(this@getOAID)
         getClassOrNull("com.android.id.impl.IdProviderImpl")?.let {
-            it.getAccessibleMethod("getOAID", Context::class.java)?.invoke(it.getAccessibleConstructor(true)?.newInstance(), this@getOAID) as String?
+            it.getAccessibleMethod("getOAID", Context::class.java).invoke(it.getAccessibleConstructor(true)?.newInstance(), this@getOAID) as String?
         }
     }
     Build.MANUFACTURER.equals("ZTE", true) -> getOAIDOfficially()
@@ -255,7 +255,7 @@ private suspend fun Context.processIBinderFromOAIDService(intent: Intent, iface:
         override fun onServiceDisconnected(name: ComponentName?) = Unit
     }
     if (bindService(intent, connection, if (atLeastU) Context.BIND_ABOVE_CLIENT or Context.BIND_AUTO_CREATE else Context.BIND_AUTO_CREATE)) try {
-        return iface.invoke(queue.tryReceive().getOrThrow())
+        return iface.invoke(queue.receiveCatching().getOrThrow())
     } catch (e: Exception) { e.printStackTrace() } finally {
         unbindService(connection)
         queue.close()
@@ -276,7 +276,6 @@ interface OAIDInterface : IInterface {
             val obtain2 = Parcel.obtain()
             try {
                 obtain.writeInterfaceToken(descriptor)
-                obtain.enforceInterface(descriptor)
                 asBinder()?.transact(IBinder.FIRST_CALL_TRANSACTION + supportOffset, obtain, obtain2, 0)
                 obtain2.readException()
                 return obtain2.readInt() != 0
@@ -294,7 +293,6 @@ interface OAIDInterface : IInterface {
         val obtain2 = Parcel.obtain()
         try {
             obtain.writeInterfaceToken(descriptor)
-            obtain.enforceInterface(descriptor)
             if (length > 0 && parameters.size == length) {
                 parameters.forEach { obtain.writeString(it) }
             }
@@ -346,7 +344,7 @@ interface OAIDInterface : IInterface {
     class OPPOID private constructor(private val iBinder: IBinder?, private val isOnePlus: Boolean = false) : OAIDInterface {
         companion object {
             fun newInstance(iBinder: IBinder?, isOnePlus: Boolean = false): OPPOID =
-                iBinder?.queryLocalInterface(if (isOnePlus) "com.oplus.stdid.IStdID" else "com.heytap.openid.IOpenID")?.takeIf { it is OPPOID } as OPPOID? ?: OPPOID(iBinder, isOnePlus)
+                iBinder?.queryLocalInterface(if (isOnePlus) "com.oplus.stdid.IStdID" else "com.heytap.openid.IOpenID") as? OPPOID ?: OPPOID(iBinder, isOnePlus)
         }
         override val descriptor: String
             get() = if (isOnePlus) "com.oplus.stdid.IStdID" else "com.heytap.openid.IOpenID"
@@ -372,7 +370,7 @@ interface OAIDInterface : IInterface {
     class COOLID private constructor(private val iBinder: IBinder?): OAIDInterface {
         companion object {
             fun newInstance(iBinder: IBinder?): COOLID =
-                iBinder?.queryLocalInterface("com.coolpad.deviceidsupport.IDeviceIdManager")?.takeIf { it is COOLID } as COOLID? ?: COOLID(iBinder)
+                iBinder?.queryLocalInterface("com.coolpad.deviceidsupport.IDeviceIdManager") as? COOLID ?: COOLID(iBinder)
         }
         override val descriptor: String
             get() = "com.coolpad.deviceidsupport.IDeviceIdManager"

@@ -85,11 +85,11 @@ fun TelephonyManager.getImeiCompat(slotIndex: Int): String? =
     if (atLeastQ) getImei(slotIndex)
     else if (atLeastM) getDeviceId(slotIndex)
     else {// TelephonyManagerCompat.getImei
-        { javaClass.getDeclaredAccessibleMethod("getDeviceId", Int.Companion::class.java)
-            ?.invoke(this, slotIndex) as String }.catchReturnNull(null, SecurityException::class.java)
+        { javaClass.getDeclaredAccessibleMethod("getDeviceId", Int::class.java)
+            .invoke(this, slotIndex) as String }.catchReturnNull(null, SecurityException::class.java)
     }
 
-fun String.isIMEIValid() = isNotBlank() && !contentEquals("null") && !contains('0')
+fun String.isIMEIValid() = isNotBlank() && !contentEquals("null") && !all { it == '0' } && length in 14..16
 
 // https://github.com/happylishang/AntiFakerAndroidChecker/tree/master/antifake/src/main/java/com/snail/antifake/deviceid/deviceid
 @RequiresPermission(anyOf = [Manifest.permission.READ_PHONE_STATE, "android.permission.READ_PRIVILEGED_PHONE_STATE"], conditional = true)
@@ -111,34 +111,35 @@ fun Context.getDeviceIdCompat(): String = {
 @RequiresPermission(anyOf = [Manifest.permission.READ_PHONE_STATE, "android.permission.READ_PRIVILEGED_PHONE_STATE"], conditional = true)
 fun Context.getDeviceIdViaTransaction(isViaTelephony: Boolean = true) = {
     (getClassOrNull(if (isViaTelephony) $$"com.android.internal.telephony.ITelephony$Stub" else $$"com.android.internal.telephony.IPhoneSubInfo$Stub")
-        ?.getDeclaredAccessibleMethod("asInterface", IBinder::class.java)
-        ?.invoke(null, getClassOrNull("android.os.ServiceManager")?.getDeclaredAccessibleMethod("getService",
-            String::class.java)?.invoke(null, if (isViaTelephony) Context.TELEPHONY_SERVICE else "iphonesubinfo")) as IBinder?)?.let {
-                if (it.javaClass.hasMethod(true, "getDeviceId", String::class.java)) {
-                    val data = Parcel.obtain()
-                    val reply = Parcel.obtain()
-                    try {
-                        data.writeInterfaceToken(it.interfaceDescriptor ?: it.getInterfaceDescriptorViaReflection())
-                        data.writeString(packageName)
-                        it.transact(it.getTransactionIdViaReflection("TRANSACTION_getDeviceId"), data, reply, 0)
-                        reply.readString()
-                    } finally {
-                        data.recycle()
-                        reply.recycle()
-                    }
-                } else if (it.javaClass.hasMethod(true, "getDeviceId")) {
-                    val data = Parcel.obtain()
-                    val reply = Parcel.obtain()
-                    try {
-                        data.writeInterfaceToken(it.interfaceDescriptor ?: it.getInterfaceDescriptorViaReflection())
-                        it.transact(it.getTransactionIdViaReflection("TRANSACTION_getDeviceId"), data, reply, 0)
-                        reply.readString()
-                    } finally {
-                        data.recycle()
-                        reply.recycle()
-                    }
-                } else null
-
+        ?.getAccessibleField("TRANSACTION_getDeviceId")?.get(null) as? Int)?.let {
+            val binder = getClassOrNull("android.os.ServiceManager")?.getDeclaredAccessibleMethod("getService",
+                String::class.java)?.invoke(null, if (isViaTelephony) Context.TELEPHONY_SERVICE else "iphonesubinfo") as? IBinder
+            if (binder?.javaClass?.hasMethod(true, "getDeviceId", String::class.java) == true) {
+                val data = Parcel.obtain()
+                val reply = Parcel.obtain()
+                try {
+                    data.writeInterfaceToken(binder.interfaceDescriptor ?: binder.getInterfaceDescriptorViaReflection())
+                    data.writeString(packageName)
+                    binder.transact(it, data, reply, 0)
+                    reply.readException()
+                    reply.readString()
+                } finally {
+                    data.recycle()
+                    reply.recycle()
+                }
+            } else if (binder?.javaClass?.hasMethod(true, "getDeviceId") == true) {
+                val data = Parcel.obtain()
+                val reply = Parcel.obtain()
+                try {
+                    data.writeInterfaceToken(binder.interfaceDescriptor ?: binder.getInterfaceDescriptorViaReflection())
+                    binder.transact(it, data, reply, 0)
+                    reply.readException()
+                    reply.readString()
+                } finally {
+                    data.recycle()
+                    reply.recycle()
+                }
+            } else null
         }
 }.catchEmpty()
 @RequiresPermission(anyOf = [Manifest.permission.READ_PHONE_STATE, "android.permission.READ_PRIVILEGED_PHONE_STATE"], conditional = true)
@@ -146,19 +147,19 @@ fun Context.getDeviceIdViaBinder(isViaTelephony: Boolean = true) = {
     getClassOrNull(if (isViaTelephony) $$"com.android.internal.telephony.ITelephony$Stub" else $$"com.android.internal.telephony.IPhoneSubInfo$Stub")
         ?.getDeclaredAccessibleMethod("asInterface", IBinder::class.java)
         ?.invoke(null, getClassOrNull("android.os.ServiceManager")?.getDeclaredAccessibleMethod("getService",
-            String::class.java)?.invoke(null, if (isViaTelephony) Context.TELEPHONY_SERVICE else "iphonesubinfo"))?.javaClass?.let {
-            (it.getDeclaredAccessibleMethod("getDeviceId", String::class.java)?.invoke(null, packageName) as? String).orEmpty()
-                .ifBlank { it.getDeclaredAccessibleMethod("getDeviceId")?.invoke(null, emptyArray<Any>()) as String? }
+            String::class.java)?.invoke(null, if (isViaTelephony) Context.TELEPHONY_SERVICE else "iphonesubinfo"))?.let {
+            (it.javaClass.getDeclaredAccessibleMethod("getDeviceId", String::class.java).invoke(it, packageName) as? String).orEmpty()
+                .ifBlank { it.javaClass.getDeclaredAccessibleMethod("getDeviceId").invoke(it, emptyArray<Any>()) as? String }
         }
 }.catchEmpty()
 @RequiresPermission(anyOf = [Manifest.permission.READ_PHONE_STATE, "android.permission.READ_PRIVILEGED_PHONE_STATE"], conditional = true)
 fun Context.getDeviceIdViaReflection(isViaTelephony: Boolean = true) = {
     TelephonyManager::class.java.getDeclaredAccessibleMethod(if (isViaTelephony) "getITelephony" else "getSubscriberInfo")
-        ?.invoke(getSystemService<TelephonyManager>())
+        .invoke(getSystemService<TelephonyManager>())
         ?.takeIf { it.javaClass.hasMethod(true, "asBinder") }?.let {
             (it.javaClass.getDeclaredAccessibleMethod("getDeviceId", String::class.java)
-            ?.invoke(it, packageName) as? String).orEmpty().ifBlank {
-                it.javaClass.getDeclaredAccessibleMethod("getDeviceId")?.invoke(it, emptyArray<Any>()) as String?
+            .invoke(it, packageName) as? String).orEmpty().ifBlank {
+                it.javaClass.getDeclaredAccessibleMethod("getDeviceId").invoke(it, emptyArray<Any>()) as? String
             }
     }
 }.catchEmpty()

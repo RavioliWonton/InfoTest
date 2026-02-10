@@ -21,7 +21,6 @@ import kotlinx.parcelize.Parceler
 import kotlinx.parcelize.Parcelize
 import kotlinx.parcelize.WriteWith
 import okio.Path.Companion.toPath
-import java.lang.reflect.Array
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -79,7 +78,7 @@ private data class SDCardInfo(
 ): Parcelable
 
 object PathParceler: Parceler<Path?> {
-    override fun create(parcel: Parcel): Path = Paths.get(parcel.readString())
+    override fun create(parcel: Parcel): Path? = parcel.readString()?.takeIf { it.isNotBlank() }?.let { Paths.get(it) }
     override fun Path?.write(parcel: Parcel, flags: Int) {
         parcel.writeString(this?.absolutePathString().orEmpty())
     }
@@ -94,13 +93,13 @@ private fun Context.getSDCardInfo() = mutableObjectListOf<SDCardInfo>().applyEmi
         val pathMethod = clazz.getAccessibleMethod("getPath")
         val isRemovableMethod = clazz.getAccessibleMethod("isRemovable")
         val volumeStateMethod = StorageManager::class.java.getAccessibleMethod("getVolumeState", String::class.java)
-        StorageManager::class.java.getAccessibleMethod("getVolumeList")?.invoke(sm, emptyArray<Any>())?.let {
-            val length = Array.getLength(it)
+        StorageManager::class.java.getAccessibleMethod("getVolumeList").invoke(sm, emptyArray<Any>())?.let {
+            val length = java.lang.reflect.Array.getLength(it)
             for (i in 0 until length) {
-                val storageVolumeElement = Array.get(it, i)
-                val path = pathMethod?.invoke(storageVolumeElement, emptyArray<Any>()) as String
-                add(SDCardInfo(Paths.get(path), volumeStateMethod?.invoke(sm, path) as String,
-                    isRemovableMethod?.invoke(storageVolumeElement, emptyArray<Any>()) as Boolean))
+                val storageVolumeElement = java.lang.reflect.Array.get(it, i)
+                val path = pathMethod.invoke(storageVolumeElement, emptyArray<Any>()) as String
+                add(SDCardInfo(Paths.get(path), volumeStateMethod.invoke(sm, path) as String,
+                    isRemovableMethod.invoke(storageVolumeElement, emptyArray<Any>()) as Boolean))
             }
         }
     }
@@ -123,51 +122,43 @@ fun Context.getSDCardPair(): Pair<String, String> = {
 @WorkerThread
 @Suppress("DiscouragedPrivateApi")
 @RequiresPermission(Manifest.permission.MANAGE_EXTERNAL_STORAGE)
-fun Context.getStoragePair(): Pair<Long, Long> {
-    var total = 0L
-    var free = 0L
-    try {
-        val storageManager = getSystemService<StorageManager>()
-        if (atLeastN && storageManager != null) {
-            val validVolumes = (if (atLeastT && Environment.isExternalStorageManager()) storageManager.storageVolumesIncludingSharedProfiles
-                else storageManager.storageVolumes).filter { it.state in objectListOf(Environment.MEDIA_MOUNTED, Environment.MEDIA_MOUNTED_READ_ONLY) }
-            if (atLeastO)
-                validVolumes.mapNotNull {
-                    if (atLeastS) it.storageUuid else {
-                        { it.directoryCompat?.toFile()?.let(storageManager::getUuidForPath) }.catchReturnNull(it.uuid.toUUIDorNull()?.toJavaUuid())
-                    }
-                }.takeIf { it.isNotEmpty() }?.forEach {
-                    total += getSystemService<StorageStatsManager>()?.getTotalBytes(it) ?: 0L
-                    free += getSystemService<StorageStatsManager>()?.getFreeBytes(it) ?: 0L
-                } ?: run {
-                    total += getSystemService<StorageStatsManager>()?.getTotalBytes(StorageManager.UUID_DEFAULT) ?: 0L
-                    free += getSystemService<StorageStatsManager>()?.getFreeBytes(StorageManager.UUID_DEFAULT) ?: 0L
-                }
-            else validVolumes.forEach {
-                total += it?.directoryCompat?.fileStore()?.totalSpace ?: 0L
-                free += it?.directoryCompat?.fileStore()?.usableSpace ?: 0L
+fun Context.getStoragePair() = runCatching {
+    val storageManager = getSystemService<StorageManager>()
+    if (atLeastN && storageManager != null) {
+        val validVolumes = (if (atLeastT && Environment.isExternalStorageManager()) storageManager.storageVolumesIncludingSharedProfiles
+            else storageManager.storageVolumes).filter { it.state in objectListOf(Environment.MEDIA_MOUNTED, Environment.MEDIA_MOUNTED_READ_ONLY) }
+        if (atLeastO) validVolumes.mapNotNull {
+            if (atLeastS) it.storageUuid else {
+                { it.directoryCompat?.toFile()?.let(storageManager::getUuidForPath) }.catchReturnNull(it.uuid.toUUIDorNull()?.toJavaUuid())
             }
-        } else {
-            val getPathMethod = getClassOrNull("android.os.storage.StorageVolume")?.getDeclaredAccessibleMethod("getPath")
-            StorageManager::class.java.getDeclaredAccessibleMethod("getVolumeList")?.invoke(storageManager, emptyArray<Any>())?.let {
-                for (i in 0 until java.lang.reflect.Array.getLength(it)) {
-                    val volumeFile = (getPathMethod?.invoke(java.lang.reflect.Array.get(it, i), emptyArray<Any>()) as String).toPath().toNioPath()
-                    total += volumeFile.fileStore().totalSpace
-                    free += volumeFile.fileStore().usableSpace
-                }
-            }
+        }.takeIf { it.isNotEmpty() }?.fold(0L to 0L) { (total, free), uuid ->
+            (total + (getSystemService<StorageStatsManager>()?.getTotalBytes(uuid) ?: 0L)) to
+                    (free + (getSystemService<StorageStatsManager>()?.getFreeBytes(uuid) ?: 0L))
+        } ?: ((getSystemService<StorageStatsManager>()?.getTotalBytes(StorageManager.UUID_DEFAULT) ?: 0L) to
+            (getSystemService<StorageStatsManager>()?.getFreeBytes(StorageManager.UUID_DEFAULT) ?: 0L))
+        else validVolumes.fold(0L to 0L) { (total, free), volume ->
+            (total + (volume?.directoryCompat?.fileStore()?.totalSpace ?: 0L)) to
+                    (free + (volume?.directoryCompat?.fileStore()?.usableSpace ?: 0L))
         }
-    } catch (_: Exception) {
+    } else {
+        val getPathMethod = getClassOrNull("android.os.storage.StorageVolume")?.getDeclaredAccessibleMethod("getPath")
+        StorageManager::class.java.getDeclaredAccessibleMethod("getVolumeList").invoke(storageManager, emptyArray<Any>())?.let {
+            (0 until java.lang.reflect.Array.getLength(it))
+                .map { index -> java.lang.reflect.Array.get(it, index) }
+                .fold(0L to 0L) { (total, free), element ->
+                    (getPathMethod?.invoke(element) as? String)?.toPath()?.toNioPath()
+                        ?.fileStore()?.let { store -> (total + store.totalSpace) to (free + store.usableSpace) }
+                        ?: (total to free)
+                }
+            } ?: (0L to 0L)
+        }
+    }.getOrElse {
         StatFs(Environment.getExternalStorageDirectory().absolutePath).let {
-            total = it.totalBytes
-            free = it.availableBytes
+            it.totalBytes to it.availableBytes
         }
     }
-    return total to free
-}
 
 private val StorageVolume.directoryCompat: Path?
     @Suppress("DiscouragedPrivateApi")
-    get() = Paths.get(if (atLeastR) directory?.absolutePath else {
-        { javaClass.getDeclaredAccessibleMethod("getPath")?.invoke(this, emptyArray<Any>()) as String }.catchReturnNull()
-    }).normalize()
+    get() = { Paths.get(if (atLeastR) directory?.absolutePath
+    else javaClass.getDeclaredAccessibleMethod("getPath").invoke(this, emptyArray<Any>()) as? String).normalize() }.catchReturnNull()

@@ -51,7 +51,7 @@ fun Activity.getHardwareInfo(): Hardware {
                 ?: Build.MODEL
         } catch (e: Exception) { "" }*/,
         deviceWidth = currentPoint.width() - insets.left - insets.right,
-        model = Build.MODEL.trim { it <= ' ' }.replace("\\s*".toRegex(), "").takeIf { it != Build.UNKNOWN }.orEmpty(),
+        model = Build.MODEL.filterNot { it.isWhitespace() }.takeIf { it != Build.UNKNOWN }.orEmpty(),
         physicalSize = getPhysicalSize()?.toString(), productionDate = Build.TIME,
         release = Build.VERSION.RELEASE.takeIf { it != Build.UNKNOWN }.orEmpty(),
         sdkVersion = Build.VERSION.SDK_INT.toString(),
@@ -64,7 +64,7 @@ fun Activity.getHardwareInfo(): Hardware {
 
 private fun Context.isUiContextCompat() = {
     if (atLeastS) isUiContext
-    else unwrapUntilAnyOrNull(Activity::class.java, InputMethodService::class.java) != null
+    else unwrapToAnyOf(Activity::class.java, InputMethodService::class.java) != null
 }.catchFalse()
 
 private fun Context.getPhysicalSize() = {

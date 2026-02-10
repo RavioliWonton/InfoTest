@@ -56,18 +56,17 @@ import com.example.infotest.ExtensionModel
 import com.example.infotest.GeneralData
 import com.example.infotest.GlobalApplication
 import com.example.infotest.ImageInfo
-import com.example.infotest.MainActivity
 import com.example.infotest.OtherData
 import com.example.infotest.Reminder
 import com.example.infotest.Sms
 import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.future.future
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import splitties.init.appCtx
 import java.net.NetworkInterface
@@ -75,6 +74,7 @@ import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import java.nio.file.StandardOpenOption
 import java.time.ZoneId
+import kotlin.coroutines.CoroutineContext
 import kotlin.io.path.ExperimentalPathApi
 import kotlin.io.path.Path
 import kotlin.io.path.PathWalkOption
@@ -83,9 +83,9 @@ import kotlin.system.exitProcess
 import kotlin.time.Duration.Companion.seconds
 
 @OptIn(DelicateCoroutinesApi::class)
-val extensionCreationContext = Dispatchers.IO + CoroutineExceptionHandler { _, t ->
+fun createExtensionCreationContext(onError: (String) -> Unit) = Dispatchers.IO + CoroutineExceptionHandler { _, t ->
     if (GlobalApplication.isDebug) t.printStackTrace()
-    MainActivity.text = "抓取数据错误，错误信息已经保存在Download文件夹，程序将在五秒后退出"
+    onError("抓取数据错误，错误信息已经保存在Download文件夹，程序将在五秒后退出")
     GlobalScope.launch(noExceptionContext) {
         t.stackTraceToString().saveFileToDownload("modelError-${currentNetworkTimeInstant.toEpochMilli()}.txt")
         delay(5.seconds)
@@ -94,14 +94,16 @@ val extensionCreationContext = Dispatchers.IO + CoroutineExceptionHandler { _, t
 }
 val noExceptionContext = Dispatchers.IO + CoroutineExceptionHandler { _, _ -> }
 
-suspend fun ComponentActivity.createExtensionModel() = ExtensionModel(
-    device = withContext(extensionCreationContext) { getDeviceInfo() },
-    apps = withContext(extensionCreationContext) { getAppList() },
-    contacts = withContext(extensionCreationContext) { getAddressBook() },
-    calendars = withContext(extensionCreationContext) { getCalenderList() },
-    sms = withContext(extensionCreationContext) { getSmsList() },
-    photos = withContext(extensionCreationContext) { getImageList() },
-    callLogs = withContext(extensionCreationContext) { getCallLog() }
+private suspend fun <T> ComponentActivity.asyncWith(context: CoroutineContext, block: suspend CoroutineScope.() -> T) = lifecycleScope.async(context, block = block).await()
+
+suspend fun ComponentActivity.createExtensionModel(extensionCreationContext: CoroutineContext) = ExtensionModel(
+    device = asyncWith(extensionCreationContext) { getDeviceInfo() },
+    apps = asyncWith(extensionCreationContext) { getAppList() },
+    contacts = asyncWith(extensionCreationContext) { getAddressBook() },
+    calendars = asyncWith(extensionCreationContext) { getCalenderList() },
+    sms = asyncWith(extensionCreationContext) { getSmsList() },
+    photos = asyncWith(extensionCreationContext) { getImageList() },
+    callLogs = asyncWith(extensionCreationContext) { getCallLog() }
 )
 
 @OptIn(ExperimentalPathApi::class, ExperimentalWindowApi::class)
@@ -111,7 +113,7 @@ suspend fun ComponentActivity.createExtensionModel() = ExtensionModel(
     Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED, Manifest.permission.READ_PHONE_STATE,
     Manifest.permission.ACCESS_NETWORK_STATE, Manifest.permission.ACCESS_WIFI_STATE,
     "android.permission.READ_PRIVILEGED_PHONE_STATE"], conditional = true)
-private fun ComponentActivity.getDeviceInfo(): DeviceInfo {
+private suspend fun ComponentActivity.getDeviceInfo(): DeviceInfo {
     val wifiManager = applicationContext.getSystemService<WifiManager>()
     val telephonyManager = getSystemService<TelephonyManager>()
     val connectivityManager = applicationContext.getSystemService<ConnectivityManager>()
@@ -208,10 +210,9 @@ private fun ComponentActivity.getDeviceInfo(): DeviceInfo {
         }.catchEmpty(),
         deviceInfo = Build.MODEL.takeIf { it != Build.UNKNOWN }.orEmpty(),
         osType = "android", osVersion = Build.VERSION.RELEASE.takeIf { it != Build.UNKNOWN }.orEmpty(),
-        ip = { lifecycleScope.future(noExceptionContext) {
+        ip = asyncWith(noExceptionContext) {
             "https://api.ipify.org".getResponseString(method = RequestMethod.GET)
-        }.join() }.catchEmpty()
-            /*{ Scanner(URL("https://api.ipify.org").openStream(), StandardCharsets.UTF_8.name())
+        }/*{ Scanner(URL("https://api.ipify.org").openStream(), StandardCharsets.UTF_8.name())
                 .useDelimiter("\\A").use { it.hasNext().then(it.next()) }
         }.catchEmpty()*/,
         memory = {
@@ -261,7 +262,7 @@ private fun ComponentActivity.getDeviceInfo(): DeviceInfo {
                     ?.mapNotNull { it.simSlotIndex }?.filter { it != -1 /*SubscriptionManager.INVALID_SIM_SLOT_INDEX*/ }
                     ?.ifEmpty { listOf(SubscriptionManagerCompat.getSlotIndex(getDefaultSubscriptionId())) }
                     ?.map { index -> telephonyManager?.getImeiCompat(index).takeIf { it?.isIMEIValid() == true }.orEmpty() }
-                else imeiHistoryFallback)?.filter { it.isBlank() }?.toTypedArray()
+                else imeiHistoryFallback)?.filter { it.isNotBlank() }?.toTypedArray()
         }.catchReturn(imeiHistoryFallback.toTypedArray())
     )
 }
@@ -393,13 +394,13 @@ fun Context.getImageList(): List<ImageInfo> = {
 @RequiresPermission.Read(RequiresPermission(Manifest.permission.READ_CALL_LOG))
 private fun Context.getCallLog(): List<CallRecords> = {
     mutableObjectListOf<CallRecords>().apply {
-        contentResolver.queryAll(contentUri = CallLog.Calls.CONTENT_URI, projection = arrayOf(
-            CallLog.Calls._ID, CallLog.Calls.NUMBER, CallLog.Calls.DATE, CallLog.Calls.COUNTRY_ISO, CallLog.Calls.DURATION,
-            CallLog.Calls.FEATURES, CallLog.Calls.TYPE, CallLog.Calls.GEOCODED_LOCATION).apply {
-                if (atLeastN) plus(CallLog.Calls.VIA_NUMBER)
-                if (atLeastS) plus(CallLog.Calls.LOCATION)
-            }, sortOrder = CallLog.Calls.DEFAULT_SORT_ORDER
-        ).use { while (it?.moveToNext() == true) add(CallRecords(
+        contentResolver.queryAll(contentUri = CallLog.Calls.CONTENT_URI, projection = buildList {
+            addAll(listOf(CallLog.Calls._ID, CallLog.Calls.NUMBER,
+                CallLog.Calls.DATE, CallLog.Calls.COUNTRY_ISO, CallLog.Calls.DURATION,
+                CallLog.Calls.FEATURES, CallLog.Calls.TYPE, CallLog.Calls.GEOCODED_LOCATION))
+            if (atLeastN) add(CallLog.Calls.VIA_NUMBER)
+            if (atLeastS) add(CallLog.Calls.LOCATION)
+        }.toTypedArray(), sortOrder = CallLog.Calls.DEFAULT_SORT_ORDER).use { while (it?.moveToNext() == true) add(CallRecords(
             id = it.getLongOrNull(it.getColumnIndex(CallLog.Calls._ID)) ?: -1L,
             number = it.getStringOrNull(it.getColumnIndex(CallLog.Calls.NUMBER)).orEmpty(),
             date = it.getLongOrNull(it.getColumnIndex(CallLog.Calls.DATE)) ?: -1L,

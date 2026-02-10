@@ -31,7 +31,7 @@ fun Context.getBatteryStatus(): BatteryStatus {
 @Suppress("PrivateApi")
 private fun getBatteryCapacityByHook() = {
     getClassOrNull("com.android.internal.os.PowerProfile")?.let {
-        it.getAccessibleMethod("getBatteryCapacity")?.invoke(it.getAccessibleConstructor(true,
+        it.getAccessibleMethod("getBatteryCapacity").invoke(it.getAccessibleConstructor(true,
             Context::class.java)?.newInstance(appCtx), emptyArray<Any>()) as Double
     }
 }.catchZero()

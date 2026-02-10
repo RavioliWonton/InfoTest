@@ -21,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,10 +36,10 @@ import com.example.infotest.utils.StartWifiScan
 import com.example.infotest.utils.atLeastQ
 import com.example.infotest.utils.atLeastT
 import com.example.infotest.utils.couldFetchAddress
+import com.example.infotest.utils.createExtensionCreationContext
 import com.example.infotest.utils.createExtensionModel
 import com.example.infotest.utils.currentNetworkTimeInstant
 import com.example.infotest.utils.emitException
-import com.example.infotest.utils.extensionCreationContext
 import com.example.infotest.utils.isColorOS
 import com.example.infotest.utils.lastDbmCompat
 import com.example.infotest.utils.saveFileToDownload
@@ -52,10 +53,6 @@ import kotlin.system.exitProcess
 import kotlin.time.Duration.Companion.seconds
 
 class MainActivity : ComponentActivity() {
-    companion object {
-        var text by mutableStateOf("申请权限")
-    }
-    private var isStartingFetch by mutableStateOf(false)
     private val permissionArray = mutableListOf(
         Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE,
         Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION,
@@ -69,6 +66,7 @@ class MainActivity : ComponentActivity() {
     private val tPermissionArray = qPermissionArray.plus(arrayOf(Manifest.permission.READ_MEDIA_AUDIO,
         Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO,
         Manifest.permission.POST_NOTIFICATIONS)).minusElement(Manifest.permission.READ_EXTERNAL_STORAGE)
+    private val geocoder by lazy { Geocoder(this) }
 
     @OptIn(ExperimentalPermissionsApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -86,6 +84,8 @@ class MainActivity : ComponentActivity() {
             }*/
         setContent {
             enableEdgeToEdge()
+            var text by remember { mutableStateOf("申请权限") }
+            var isStartingFetch by remember { mutableStateOf(false) }
 
             InfoTestTheme {
                 // A surface container using the 'background' color from the theme
@@ -111,7 +111,6 @@ class MainActivity : ComponentActivity() {
                                     ?.let { ActivityCompat.finishAffinity(this) }
                             }
                         if (permission.allPermissionsGranted) {
-                            TencentLocationManager.setUserAgreePrivacy(true)
                             StartWifiScan()
                             RegisterWifiCallback()
                             if (atLeastQ) GetCellInfoComposeAsync { GlobalApplication.dbm = it.lastDbmCompat }
@@ -119,35 +118,35 @@ class MainActivity : ComponentActivity() {
                                 @Suppress("DEPRECATION")
                                 GlobalApplication.gps = it
                                 if (atLeastT && it.couldFetchAddress()) emitException {
-                                    Geocoder(this@MainActivity).getFromLocation(it.latitude, it.longitude,
+                                    geocoder.getFromLocation(it.latitude, it.longitude,
                                         1) { address -> GlobalApplication.address = address.firstOrNull() }
                                     }
                                 }
                             }
-                            startFetch()
-                        }
-                        else LaunchedEffect(permission) { permission.launchMultiplePermissionRequest() }
+                            LaunchedEffect(permission.allPermissionsGranted) {
+                                TencentLocationManager.setUserAgreePrivacy(true)
+                                isStartingFetch = true
+                                startFetch { text = it }
+                            }
+                        } else LaunchedEffect(permission) { permission.launchMultiplePermissionRequest() }
                     }
                 }
             }
         }
     }
 
-    private fun startFetch() {
-        if (!isStartingFetch) {
-            isStartingFetch = true
-            text = "开始抓取数据，先等待五秒钟以获得地理位置和GAID"
-            lifecycleScope.launch(extensionCreationContext) {
-                delay(5.seconds)
-                text = "正在抓取……"
-                serializer.encodeToString(createExtensionModel())
-                    .saveFileToDownload("model-${currentNetworkTimeInstant.toEpochMilli()}.txt", contentResolver)
-                text = "抓取完成！信息已经保存在Download文件夹，程序将在五秒钟之内关闭"
-                delay(5.seconds)
-                finishAndRemoveTask()
-                Process.killProcess(Process.myPid())
-                exitProcess(0)
-            }
+    private fun startFetch(onFetching: (String) -> Unit) {
+        onFetching("开始抓取数据，先等待五秒钟以获得地理位置和GAID")
+        lifecycleScope.launch(createExtensionCreationContext(onFetching)) {
+            delay(5.seconds)
+            onFetching("正在抓取……")
+            serializer.encodeToString(createExtensionModel(createExtensionCreationContext(onFetching)))
+                .saveFileToDownload("model-${currentNetworkTimeInstant.toEpochMilli()}.txt", contentResolver)
+            onFetching("抓取完成！信息已经保存在Download文件夹，程序将在五秒钟之内关闭")
+            delay(5.seconds)
+            finishAndRemoveTask()
+            Process.killProcess(Process.myPid())
+            exitProcess(0)
         }
     }
 

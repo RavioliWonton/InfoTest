@@ -125,7 +125,7 @@ private fun Activity.setup(isAccuracy: Boolean = false, isUsingGoogleService: Bo
                         longitude = location.longitude
                         altitude = location.altitude
                         time = location.time
-                        elapsedRealtimeNanos = location.elapsedRealtime * 1000
+                        elapsedRealtimeNanos = location.elapsedRealtime * 1_000_000L
                         if (location.provider == TencentLocation.GPS_PROVIDER) {
                             speed = location.speed
                             bearing = location.bearing

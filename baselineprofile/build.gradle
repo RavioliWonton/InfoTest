@@ -36,7 +36,7 @@ android {
         pixel9Api36(ManagedVirtualDevice) {
             device = 'Pixel 9'
             apiLevel = 36
-            systemImageSource = 'google'
+            systemImageSource = 'google-atd'
         }
         pixel6Api35(ManagedVirtualDevice) {
             device = 'Pixel 6'

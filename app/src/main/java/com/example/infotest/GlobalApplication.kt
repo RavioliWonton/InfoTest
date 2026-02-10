@@ -27,7 +27,6 @@ import com.google.android.gms.appset.AppSet
 import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.common.GoogleApiAvailabilityLight
 import com.google.android.gms.common.GooglePlayServicesRepairableException
-import com.google.android.gms.common.GooglePlayServicesUtil
 import com.google.android.gms.net.CronetProviderInstaller
 import com.google.android.gms.security.ProviderInstaller
 import com.google.android.gms.time.TrustedTime
