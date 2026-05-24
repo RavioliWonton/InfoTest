@@ -158,6 +158,9 @@ private suspend fun String.getResponseBufferCronet(method: String, headers: Map<
         override fun onFailed(request: org.chromium.net.UrlRequest?,
                               info: org.chromium.net.UrlResponseInfo?,
                               error: CronetException?) = cont.resumeWithException(error ?: IllegalStateException())
+        override fun onCanceled(request: org.chromium.net.UrlRequest?, info: org.chromium.net.UrlResponseInfo?) {
+            cont.cancel()
+        }
     }, Dispatchers.IO.asExecutor()).setHttpMethod(method).disableCache().apply {
         headers.forEach { addHeader(it.key, it.value) }
         data?.let {

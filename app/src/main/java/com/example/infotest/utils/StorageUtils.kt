@@ -26,7 +26,6 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import kotlin.io.path.absolutePathString
 import kotlin.io.path.fileStore
-import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.toJavaUuid
 
 fun Context.getStorageInfo(): Storage {
@@ -118,7 +117,6 @@ fun Context.getSDCardPair(): Pair<String, String> = {
     }
 }.catchReturn("-1" to "-1")
 
-@OptIn(ExperimentalUuidApi::class)
 @WorkerThread
 @Suppress("DiscouragedPrivateApi")
 @RequiresPermission(Manifest.permission.MANAGE_EXTERNAL_STORAGE)

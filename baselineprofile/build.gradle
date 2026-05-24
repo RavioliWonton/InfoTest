@@ -8,12 +8,8 @@ plugins {
 
 android {
     namespace = 'com.example.baselineprofile'
-    compileSdk {
-        version = release(36) {
-            it.minorApiLevel = 1
-        }
-    }
-    buildToolsVersion = '36.1.0'
+    compileSdk 37
+    buildToolsVersion = '37.0.0'
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
@@ -22,7 +18,7 @@ android {
 
     defaultConfig {
         minSdk = 28
-        targetSdk = 36
+        targetSdk = 37
 
         testInstrumentationRunner = 'androidx.test.runner.AndroidJUnitRunner'
         testInstrumentationRunnerArguments["androidx.benchmark.fullTracing.enable"] = "true"

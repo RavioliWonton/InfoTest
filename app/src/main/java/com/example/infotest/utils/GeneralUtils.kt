@@ -11,9 +11,12 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.BaseBundle
+import android.os.Binder
 import android.os.Build
+import android.os.Bundle
 import android.os.IBinder
-import android.os.IInterface
+import android.os.Parcel
+import android.os.Parcelable
 import android.os.Process
 import android.os.ext.SdkExtensions
 import androidx.annotation.AnyThread
@@ -27,13 +30,16 @@ import androidx.collection.emptyObjectList
 import androidx.collection.objectListOf
 import androidx.core.app.ActivityOptionsCompat
 import androidx.core.content.ContextCompat
+import androidx.core.os.ParcelCompat
 import com.google.android.gms.time.TrustedTimeClient
 import kotlinx.coroutines.tasks.await
 import org.xmlpull.v1.XmlPullParser
 import splitties.init.appCtx
 import java.lang.reflect.Constructor
+import java.lang.reflect.Executable
 import java.lang.reflect.Field
 import java.lang.reflect.Method
+import java.lang.reflect.Modifier
 import java.nio.file.FileSystems
 import java.nio.file.LinkOption
 import java.security.MessageDigest
@@ -193,6 +199,44 @@ inline fun <reified T> T.applyEmitException(block: T.() -> Unit): T = apply {
     emitException { block.invoke(this) }
 }
 
+val Any?.javaType get() = when (this) {
+    is Int -> Int::class.javaPrimitiveType
+    is Long -> Long::class.javaPrimitiveType
+    is Float -> Float::class.javaPrimitiveType
+    is Double -> Double::class.javaPrimitiveType
+    is Boolean -> Boolean::class.javaPrimitiveType
+    is Byte -> Byte::class.javaPrimitiveType
+    is Short -> Short::class.javaPrimitiveType
+    is Char -> Char::class.javaPrimitiveType
+    else -> this?.javaClass
+}
+@Suppress("UNCHECKED_CAST")
+fun Parcel.writeAny(value: Any?) {
+    when (value) {
+        is Int -> writeInt(value)
+        is Long -> writeLong(value)
+        is Float -> writeFloat(value)
+        is Double -> writeDouble(value)
+        is Char -> writeInt(value.code)
+        is String -> writeString(value)
+        is Boolean -> ParcelCompat.writeBoolean(this, value)
+        is ByteArray -> writeByteArray(value)
+        is IntArray -> writeIntArray(value)
+        is LongArray -> writeLongArray(value)
+        is FloatArray -> writeFloatArray(value)
+        is DoubleArray -> writeDoubleArray(value)
+        is BooleanArray -> writeBooleanArray(value)
+        is Array<*> -> if (value.firstOrNull() is Parcelable) writeTypedArray(value as? Array<Parcelable>, 0) else writeArray(value)
+        is Bundle -> writeBundle(value)
+        is Binder -> writeBinderArray(arrayOf(value))
+        is List<*> -> if (value.firstOrNull() is Parcelable) writeTypedList(value as? List<Parcelable>) else writeList(value)
+        is Map<*, *> -> writeMap(value)
+        is Parcelable -> writeParcelable(value, 0)
+        else -> emitException { writeValue(value) }
+    }
+}
+fun List<Any?>.paramTypes(): List<Class<*>> = map { it?.javaType ?: String::class.java }
+
 @Suppress("IntentWithNullActionLaunch")
 inline fun <reified T : Activity> Context.startActivityCompat(
     options: ActivityOptionsCompat? = null, intentBuilder: Intent.() -> Unit = {}
@@ -258,25 +302,51 @@ class ObjectListAdapterFactory: JsonAdapter.Factory {
 @AnyThread
 fun getClassOrNull(className: String) =
     { Class.forName(className, false, Thread.currentThread().contextClassLoader) }.catchReturnNull()
+@Suppress("DEPRECATION", "DiscouragedPrivateApi")
+fun Field.setAccessibleSafely() {
+    try {
+        isAccessible = true
+    } catch (_: Exception) {
+        emitException {
+            val accessFlagsField = Field::class.java.getDeclaredField("accessFlags")
+            accessFlagsField.isAccessible = true
+            accessFlagsField.setInt(this, accessFlagsField.getInt(this) and Modifier.FINAL.inv())
+        }
+    }
+}
+@Suppress("DEPRECATION", "DiscouragedPrivateApi", "SoonBlockedPrivateApi")
+fun Executable.setAccessibleSafely() {
+    try {
+        isAccessible = true
+    } catch (_: Exception) {
+        emitException {
+            if (atLeastQ) {
+                val accessFlagsField = Executable::class.java.getDeclaredField("accessFlags")
+                accessFlagsField.isAccessible = true
+                accessFlagsField.setInt(this, accessFlagsField.getInt(this) and Modifier.FINAL.inv())
+            }
+        }
+    }
+}
 @SafeVarargs
 @Throws(NoSuchMethodException::class)
 fun Class<*>.getAccessibleMethod(name: String, vararg parameterTypes: Class<*> = emptyArray()): Method =
-    getMethod(name, *parameterTypes).apply { isAccessible = true }
+    getMethod(name, *parameterTypes).apply { setAccessibleSafely() }
 @SafeVarargs
 @Throws(NoSuchMethodException::class)
 fun Class<*>.getDeclaredAccessibleMethod(name: String, vararg parameterTypes: Class<*> = emptyArray()): Method =
-    getDeclaredMethod(name, *parameterTypes).apply { isAccessible = true }
+    getDeclaredMethod(name, *parameterTypes).apply { setAccessibleSafely() }
 @SafeVarargs
 fun Class<*>.hasMethod(isDeclared: Boolean, name: String, vararg parameterTypes: Class<*> = emptyArray()): Boolean = {
     (if (isDeclared) getDeclaredMethod(name, *parameterTypes) else getMethod(name, *parameterTypes)) != null
 }.catchFalse()
 @Throws(NoSuchFieldException::class)
 fun Class<*>.getAccessibleField(name: String, isDeclared: Boolean = false): Field? =
-    (if (isDeclared) getDeclaredField(name) else getField(name)).apply { isAccessible = true }
+    (if (isDeclared) getDeclaredField(name) else getField(name)).apply { setAccessibleSafely() }
 @SafeVarargs
 @Throws(NoSuchMethodException::class)
 fun Class<*>.getAccessibleConstructor(isDeclared: Boolean = false, vararg parameterTypes: Class<*> = emptyArray()): Constructor<out Any>? =
-    (if (isDeclared) getDeclaredConstructor(*parameterTypes) else getConstructor(*parameterTypes)).apply { isAccessible = true }
+    (if (isDeclared) getDeclaredConstructor(*parameterTypes) else getConstructor(*parameterTypes)).apply { setAccessibleSafely() }
 
 fun IBinder.getTransactionIdViaReflection(name: String): Int = {
     javaClass.enclosingClass?.getAccessibleField(name, true)?.get(this) as Int?
@@ -285,10 +355,11 @@ fun IBinder.getInterfaceDescriptorViaReflection(): String = {
     javaClass.getDeclaredAccessibleMethod("getInterfaceDescriptor").invoke(this, emptyArray<Any>()) as String?
 }.catchEmpty()
 
-fun getSystemProperty(key: String, defaultValue: String? = "") = getClassOrNull("android.os.SystemProperties")
-    ?.getAccessibleMethod("get", String::class.java, String::class.java)?.invoke(null, key, defaultValue) as? String
-fun getSystemPropertyWithFallback(key: String, defaultValue: String? = "") = getSystemProperty(key, defaultValue).takeIf { it?.isNotBlank() == true }
-    ?: { execCommand("getprop $key")?.use { it.bufferedReader().readLine() } }.catchReturnNull(defaultValue)
+fun hasSystemProperty(key: String) = { getClassOrNull("android.os.SystemProperties")?.getAccessibleMethod("find", String::class.java)?.invoke(null, key) != null }.catchFalse()
+fun getSystemProperty(key: String, defaultValue: String = "") = { getClassOrNull("android.os.SystemProperties")
+    ?.getAccessibleMethod("get", String::class.java, String::class.java)?.invoke(null, key, defaultValue) as? String }.catchReturn(defaultValue)
+fun getSystemPropertyWithFallback(key: String, defaultValue: String = "") = getSystemProperty(key, defaultValue).takeIf { it.isNotBlank() }
+    ?: { execCommand("getprop $key")?.use { it.bufferedReader().readLine() } }.catchReturn(defaultValue)
 
 @SafeVarargs
 fun execCommand(command: String, vararg arguments: String = emptyArray(), environment: Array<String> = emptyArray()) = {
@@ -337,8 +408,7 @@ fun Context.unwrapToAnyOf(vararg types: Class<out Context>): Context? =
     unwrapUntil { context -> types.any { it.isInstance(context) } }
 fun Context.findActivity(): Activity? = unwrapTo<Activity> { !it.isDestroyed }
 
-fun isColorOS() = objectListOf("ONEPLUS", "OPPO", "REALME").any { Build.MANUFACTURER.equals(it, true) } ||
-        getSystemProperty("ro.build.version.opporom")?.isNotBlank() == true
+fun isColorOS() = objectListOf("ONEPLUS", "OPPO", "REALME").any { Build.MANUFACTURER.equals(it, true) } || getSystemProperty("ro.build.version.opporom").isNotBlank()
 
 @OptIn(ExperimentalContracts::class)
 suspend inline fun <reified R> TrustedTimeClient.use(block: suspend (TrustedTimeClient) -> R): R {
@@ -347,8 +417,6 @@ suspend inline fun <reified R> TrustedTimeClient.use(block: suspend (TrustedTime
     }
     try {
         return block(this)
-    } catch (e: Throwable) {
-        throw e
     } finally {
         this.dispose().await()
     }
@@ -377,8 +445,8 @@ fun ContentResolver.getSecureSettingStringForUserViaLowLevel(name: String, userI
 fun getUserIdByReflection() = { getClassOrNull("android.os.UserHandle")
     ?.getDeclaredAccessibleMethod("getUserId", Int::class.java)
     ?.invoke(null, Process.myUid()
-        .takeIf { it != if (atLeastQ) Process.INVALID_UID else -1 } ?:
-        if (atLeastQ) Process.ROOT_UID else Process.SYSTEM_UID) as? Int }.catchReturn(0)
+        .takeIf { it != if (atLeastQ) Process.INVALID_UID else -1 }) as? Int ?: (Process.myUid() / 100000).coerceIn(0, 1000)
+}.catchReturn(if (atLeastQ) Process.ROOT_UID else Process.SYSTEM_UID)
 
 /*fun String?.retrace(mappingFile: File, isVerbose: Boolean = true) = run {
     Writer.nullWriter().buffered().use {

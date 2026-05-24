@@ -9,7 +9,6 @@ import android.content.Context
 import android.content.res.Resources
 import android.database.Cursor
 import android.graphics.BitmapFactory
-import android.graphics.Rect
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
@@ -54,12 +53,12 @@ val audioInternalUri: Uri = if (atLeastQ) MediaStore.Audio.Media.getContentUri(M
 val audioExternalUri: Uri = if (atLeastQ) MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY) else MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
 
 fun ContentResolver.queryAll(@RequiresPermission contentUri: Uri, projection: Array<String>? = null,
-                             selection: Array<String?>? = null, selectionArgs: Array<String?>? = null,
+                             selection: Array<String?>? = null, selectionArgs: Array<String>? = null,
                              sortOrder: String? = null, cancellationSignal: CancellationSignal? = null): Cursor?
-= if (atLeastO) query(contentUri.let { if (it.authority == MediaStore.AUTHORITY && buildBetween(Build.VERSION_CODES.Q, Build.VERSION_CODES.P))
+= if (atLeastO) query(contentUri.let { if (it.authority == MediaStore.AUTHORITY && buildBetween(Build.VERSION_CODES.P, Build.VERSION_CODES.Q))
     @Suppress("NewApi")
     MediaStore.setIncludePending(it) else it }, projection, Bundle().apply {
-    selection?.joinToString(separator = ", ") { "$it = ?" }?.let { putString(ContentResolver.QUERY_ARG_SQL_SELECTION, it) }
+    selection?.joinToString(separator = " AND ") { "$it = ?" }?.let { putString(ContentResolver.QUERY_ARG_SQL_SELECTION, it) }
     selectionArgs?.let { putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, it) }
     sortOrder?.let { putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, it) }
 }.also {
@@ -70,12 +69,12 @@ fun ContentResolver.queryAll(@RequiresPermission contentUri: Uri, projection: Ar
     }
 }, cancellationSignal?.cancellationSignalObject as android.os.CancellationSignal?)
 else ContentResolverCompat.query(this, contentUri, projection,
-    selection?.joinToString(separator = ", ") { "$it = ?" }, selectionArgs, sortOrder, cancellationSignal)
+    selection?.joinToString(separator = " AND ") { "$it = ?" }, selectionArgs, sortOrder, cancellationSignal)
 
 @SafeVarargs
 fun Context.countContent(@RequiresPermission vararg contentUri: Uri): Int =
     contentUri.filterNot { it == Uri.EMPTY }.fold(0) { sum, uri -> {
-        contentResolver.queryAll(contentUri = uri, projection = emptyArray()).use { sum + (it?.count ?: 0) }
+        contentResolver.queryAll(contentUri = uri)?.use { sum + it.count }
     }.catchReturn(sum)
 }
 
@@ -110,30 +109,34 @@ fun MutableObjectList<ImageInfo>.processCursor(cursor: Cursor?, contentResolver:
         ZonedDateTime.parse(extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE),
             DateTimeFormatter.ofPattern("yyyy MM dd")).toInstant().toEpochMilli().toString()
     }.catchReturnNull())
+    val name = cursor?.getColumnIndex(MediaStore.Images.ImageColumns.DISPLAY_NAME) ?: return@emitException
+    val add = cursor.getColumnIndex(MediaStore.Images.ImageColumns.DATE_ADDED)
+    val modified = cursor.getColumnIndex(MediaStore.Images.ImageColumns.DATE_MODIFIED)
+    val taken = cursor.getColumnIndex(MediaStore.Images.ImageColumns.DATE_TAKEN)
 
-    while (cursor?.moveToNext() == true) cursor.toInput()?.use { input ->
+    while (cursor.moveToNext()) cursor.toInput()?.use { input ->
         val retriever = { MediaMetadataRetriever().apply { setDataSource(input.fileDescriptor) } }.catchReturnNull()
         val exif = { ExifInterface(input.fileDescriptor) }.catchReturnNull()
-        val size = {
-            if(atLeastQ && retriever != null) retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_IMAGE_WIDTH) to
-                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_IMAGE_HEIGHT)
-            else BitmapFactory.Options().apply { inJustDecodeBounds = true }.also { BitmapFactory.decodeFileDescriptor(input.fileDescriptor, Rect(), it) }
-                .let { it.outHeight.toString() to it.outWidth.toString() }
-        }.catchReturn("-1" to "-1")
+        val (width, height) = {
+            if (atLeastQ) retriever?.extractMetadata(MediaMetadataRetriever.METADATA_KEY_IMAGE_WIDTH) to
+                    retriever?.extractMetadata(MediaMetadataRetriever.METADATA_KEY_IMAGE_HEIGHT)
+            else BitmapFactory.Options().apply { inJustDecodeBounds = true }.also { BitmapFactory.decodeFileDescriptor(input.fileDescriptor, null, it) }
+                .let { options -> options.outWidth.takeIf { it > 0 }?.toString() to options.outHeight.takeIf { it > 0 }?.toString() }
+        }.catchReturn(null to null)
+        val latLong = { exif?.latLong }.catchReturnNull()
         val locationFallback = { PointLocationParser.parsePointLocation(retriever?.extractMetadata(MediaMetadataRetriever.METADATA_KEY_LOCATION)) }.catchReturnNull()
         add(ImageInfo(
-            name = cursor.getStringOrNull(cursor.getColumnIndex(MediaStore.Images.ImageColumns.DISPLAY_NAME)).orEmpty(),
-            height = size.first?.takeIf { it != "-1" } ?: exif?.getAttribute(ExifInterface.TAG_IMAGE_LENGTH).orEmpty(),
-            width = size.second?.takeIf { it != "-1" } ?: exif?.getAttribute(ExifInterface.TAG_IMAGE_WIDTH).orEmpty(),
-            latitude = exif?.latLong?.getOrNull(0) ?: locationFallback?.latitude?.format(Angle.AngleFormat.SHORT)?.toDoubleOrNull(),
-            longitude = exif?.latLong?.getOrNull(1) ?: locationFallback?.longitude?.format(Angle.AngleFormat.SHORT)?.toDoubleOrNull(),
+            name = cursor.getStringOrNull(name).orEmpty(),
+            height = height ?: exif?.getAttribute(ExifInterface.TAG_IMAGE_LENGTH).orEmpty(),
+            width = width ?: exif?.getAttribute(ExifInterface.TAG_IMAGE_WIDTH).orEmpty(),
+            latitude = latLong?.getOrNull(0) ?: locationFallback?.latitude?.format(Angle.AngleFormat.SHORT)?.toDoubleOrNull(),
+            longitude = latLong?.getOrNull(1) ?: locationFallback?.longitude?.format(Angle.AngleFormat.SHORT)?.toDoubleOrNull(),
             //gpsTimeStamp = exif?.getAttribute(ExifInterface.TAG_GPS_TIMESTAMP),
             model = exif?.getAttribute(ExifInterface.TAG_MODEL).orEmpty(),
-            saveTime = cursor.getLongOrNull(cursor.getColumnIndex(MediaStore.Images.ImageColumns.DATE_MODIFIED))?.toString().orEmpty(),
-            date = (cursor.getColumnIndex(MediaStore.Images.ImageColumns.DATE_TAKEN).takeIf { it != -1 }?.let(cursor::getLongOrNull) ?:
-                (exif?.getAttribute(ExifInterface.TAG_DATETIME))?.let { time ->
-                    LocalDateTime.parse(time, DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss")).toInstant(ZonedDateTime.now().offset)
-                        .toEpochMilli() })?.toString() ?: retriever?.getDate().orEmpty(),
+            saveTime = cursor.getLongOrNull(modified)?.toString().orEmpty(),
+            date = (taken.takeIf { it != -1 }?.let(cursor::getLongOrNull) ?: exif?.getAttribute(ExifInterface.TAG_DATETIME)?.let { time ->
+                LocalDateTime.parse(time, DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss")).toInstant(ZonedDateTime.now().offset)
+                    .toEpochMilli() })?.toString() ?: retriever?.getDate().orEmpty(),
             createTime = currentNetworkTimeInstant.toEpochMilli().toString(),
             orientation = exif?.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_UNDEFINED)?.toString().orEmpty(),
             xResolution = exif?.getAttribute(ExifInterface.TAG_X_RESOLUTION).orEmpty(),
@@ -146,7 +149,7 @@ fun MutableObjectList<ImageInfo>.processCursor(cursor: Cursor?, contentResolver:
             software = exif?.getAttribute(ExifInterface.TAG_SOFTWARE).orEmpty(),
             gpsProcessingMethod = exif?.getAttribute(ExifInterface.TAG_GPS_PROCESSING_METHOD).orEmpty(),
             flash = exif?.getAttribute(ExifInterface.TAG_FLASH).orEmpty(),
-            takeTime = cursor.getLongOrNull(cursor.getColumnIndex(MediaStore.Images.ImageColumns.DATE_ADDED))?.toString().orEmpty()
+            takeTime = cursor.getLongOrNull(add)?.toString().orEmpty()
         ))
         if (atLeastQ) retriever?.close() else retriever?.release()
     }

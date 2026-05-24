@@ -22,17 +22,13 @@ plugins {
 }
 
 android {
-    compileSdk {
-        version = release(36) {
-            it.minorApiLevel = 1
-        }
-    }
-    buildToolsVersion = '36.1.0'
+    compileSdk 37
+    buildToolsVersion = '37.0.0'
 
     defaultConfig {
         applicationId = 'com.example.infotest'
         minSdk = 23
-        targetSdk = 36
+        targetSdk = 37
         versionCode = 10
         versionName = '2.0.0'
 
@@ -199,7 +195,7 @@ kotlin {
         progressiveMode = true
         jvmDefault = JvmDefaultMode.NO_COMPATIBILITY
         extraWarnings = true
-        freeCompilerArgs.addAll(["-Xjspecify-annotations=strict", "-Xtype-enhancement-improvements-strict-mode"])
+        freeCompilerArgs.addAll(["-Xjspecify-annotations=strict", "-Xbackend-threads=0", "-XIntrinsic-const-evaluation"])
     }
 }
 

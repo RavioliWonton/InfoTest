@@ -40,7 +40,6 @@ import androidx.core.database.getIntOrNull
 import androidx.core.database.getLongOrNull
 import androidx.core.database.getStringOrNull
 import androidx.core.net.toUri
-import androidx.core.telephony.SubscriptionManagerCompat
 import androidx.core.telephony.TelephonyManagerCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -251,17 +250,17 @@ private suspend fun ComponentActivity.getDeviceInfo(): DeviceInfo {
         imeiHistory = {(
                 if (atLeastU) getSystemService<SubscriptionManager>()?.allSubscriptionInfoList
                     ?.filter { SubscriptionManager.isValidSubscriptionId(it.subscriptionId) }
-                    ?.mapNotNull { info -> telephonyManager?.getImeiCompat(info.simSlotIndex).takeIf { it?.isIMEIValid() == true }.orEmpty() }
+                    ?.mapNotNull { info -> (telephonyManager?.getImeiCompat(info.simSlotIndex)?: getImeiWithSubId(info.subscriptionId))?.takeIf { it.isIMEIValid() }.orEmpty() }
                 else if (atLeastR) getSystemService<SubscriptionManager>()?.completeActiveSubscriptionInfoList
                     ?.filter { SubscriptionManager.isValidSubscriptionId(it.subscriptionId) }
-                    ?.mapNotNull { info -> telephonyManager?.getImeiCompat(info.simSlotIndex).takeIf { it?.isIMEIValid() == true }.orEmpty() }
+                    ?.mapNotNull { info -> (telephonyManager?.getImeiCompat(info.simSlotIndex)?: getImeiWithSubId(info.subscriptionId))?.takeIf { it.isIMEIValid() }.orEmpty() }
                 else if (atLeastQ) getSystemService<SubscriptionManager>()?.accessibleSubscriptionInfoList
                     ?.filter { SubscriptionManager.isValidSubscriptionId(it.subscriptionId) }
-                    ?.mapNotNull { info -> telephonyManager?.getImeiCompat(info.simSlotIndex).takeIf { it?.isIMEIValid() == true }.orEmpty() }
+                    ?.mapNotNull { info -> (telephonyManager?.getImeiCompat(info.simSlotIndex)?: getImeiWithSubId(info.subscriptionId))?.takeIf { it.isIMEIValid() }.orEmpty() }
                 else if (atLeastLM) getSystemService<SubscriptionManager>()?.activeSubscriptionInfoList
-                    ?.mapNotNull { it.simSlotIndex }?.filter { it != -1 /*SubscriptionManager.INVALID_SIM_SLOT_INDEX*/ }
-                    ?.ifEmpty { listOf(SubscriptionManagerCompat.getSlotIndex(getDefaultSubscriptionId())) }
-                    ?.map { index -> telephonyManager?.getImeiCompat(index).takeIf { it?.isIMEIValid() == true }.orEmpty() }
+                    ?.filter { it.subscriptionId > -1 /*SubscriptionManager.INVALID_SUBSCRIPTION_ID*/ && it.simSlotIndex != -1 /*SubscriptionManager.INVALID_SIM_SLOT_INDEX*/ }
+                    ?.mapNotNull { (telephonyManager?.getImeiCompat(it.simSlotIndex)?: getImeiWithSubId(it.subscriptionId))?.takeIf { imei -> imei.isIMEIValid() } }
+                    ?.ifEmpty { telephonyManager?.getImeiCompatViaSubscriptionId(getDefaultSubscriptionId())?.let { listOf(it) }.orEmpty() }
                 else imeiHistoryFallback)?.filter { it.isNotBlank() }?.toTypedArray()
         }.catchReturn(imeiHistoryFallback.toTypedArray())
     )
@@ -296,7 +295,7 @@ private fun Context.getAddressBook(): List<Contact> = { mutableObjectListOf<Cont
                 contentResolver.queryAll(contentUri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
                     projection = arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER),
                     selection = arrayOf(ContactsContract.CommonDataKinds.Phone.CONTACT_ID),
-                    selectionArgs = arrayOf(it.getStringOrNull(it.getColumnIndex(ContactsContract.Contacts._ID)))
+                    selectionArgs = arrayOf(it.getStringOrNull(it.getColumnIndex(ContactsContract.Contacts._ID)).orEmpty())
                 ).use { phoneCursor -> while (phoneCursor?.moveToNext() == true)
                     add(contact.copy(phoneNumber = phoneCursor.getStringOrNull(phoneCursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)).orEmpty()))
                 }
@@ -314,7 +313,7 @@ private fun Context.getCalenderList(): List<Calendar> = {
                                projection: Array<String>? = arrayOf(CalendarContract.Events.TITLE,
                                    CalendarContract.Events._ID, CalendarContract.Events.DTEND,
                                    CalendarContract.Events.DTSTART, CalendarContract.Events.DESCRIPTION),
-                               selection: Array<String?>? = emptyArray(), selectionArgs: Array<String?>? = emptyArray(),
+                               selection: Array<String?>? = emptyArray(), selectionArgs: Array<String>? = emptyArray(),
                                addCondition: (id: Long) -> Boolean = { true }) =
             contentResolver.queryAll(contentUri = CalendarContract.Events.CONTENT_URI.buildUpon().authority(authority).build(),
                 projection = projection, selection = selection, selectionArgs = selectionArgs).use { cursor ->

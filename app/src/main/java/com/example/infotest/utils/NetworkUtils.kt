@@ -3,6 +3,7 @@
 package com.example.infotest.utils
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.admin.DevicePolicyManager
 import android.content.Context
 import android.location.LocationManager
@@ -47,7 +48,9 @@ import java.time.Instant
 import java.time.temporal.ChronoUnit
 import kotlin.io.path.Path
 import kotlin.io.path.exists
+import kotlin.io.path.readLines
 import kotlin.io.path.readText
+import kotlin.io.path.reader
 
 @delegate:RequiresApi(Build.VERSION_CODES.R)
 private val emptyWifiScanCallback by lazy {
@@ -178,7 +181,7 @@ fun Context.getNetworkType() = {
     }
 }.catchReturn("none")
 
-val currentNetworkTimeInstant: Instant = {
+val currentNetworkTimeInstant: Instant get() = {
     if (atLeastT && systemHasNetworkTime)
         SystemClock.currentNetworkTimeClock().instant()
     else if (GlobalApplication.trueTime.hasTheTime())
@@ -191,7 +194,7 @@ val currentNetworkTimeInstant: Instant = {
     else Clock.systemUTC().instant()
 }.catchReturn(Instant.now())
 
-private val systemHasNetworkTime = { atLeastT && SystemClock.currentNetworkTimeClock().instant().isSupported(ChronoUnit.MILLIS) }.catchFalse()
+private val systemHasNetworkTime get() = { atLeastT && SystemClock.currentNetworkTimeClock().instant().isSupported(ChronoUnit.MILLIS) }.catchFalse()
 
 @RequiresPermission(allOf = [Manifest.permission.ACCESS_WIFI_STATE, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_NETWORK_STATE])
 fun Context.getNetworkInfo(): Network {
@@ -235,17 +238,21 @@ private fun Context.getWifiLinkInetAddresses() = (GlobalApplication.currentWifiL
     ?: getWifiConnectionInfo()?.let { info -> Formatter.formatIpAddress(info.ipAddress).takeIf { InetAddresses.isNumericAddress(it) }
         ?.let { objectListOf(InetAddresses.parseNumericAddress(it)) } }
 
-@Suppress("HardwareIds")
+@Suppress("HardwareIds", "NewApi")
 @RequiresPermission(allOf = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_WIFI_STATE, Manifest.permission.READ_EXTERNAL_STORAGE, "android.permission.LOCAL_MAC_ADDRESS"], conditional = true)
-fun Context.getWifiMac(): String = {(
-    if (atLeastN) (NetworkInterface.getNetworkInterfaces().asSequence().firstOrNull { it.name.equals("wlan0", true) }
+fun Context.getWifiMac(): String = {
+    val wifiManager = applicationContext.getSystemService<WifiManager>()
+    (if (atLeastO && WifiManager::class.java.hasMethod(true, "getFactoryMacAddress")) { { WifiManager::class.java.getDeclaredAccessibleMethod("getFactoryMacAddress").invoke(wifiManager) as? String }.catchEmpty() }
+        else if (atLeastN) (NetworkInterface.getNetworkInterfaces().asSequence().firstOrNull { it.name.equals("wlan0", true) }
         ?: NetworkInterface.getByInetAddress(getWifiLinkInetAddresses()?.firstOrNull()))?.hardwareAddress.formatMac()
         ?: { getSystemService<DevicePolicyManager>()?.getWifiMacAddress(null) }.catchEmpty()
-    else if (atLeastM) listOf("/sys/class/net/wlan0/address", "/sys/class/net/eth0/address").map { Path(it) }
-        .filter { it.exists() }.firstNotNullOfOrNull { it.readText().trim() }
-    else getWifiConnectionInfo()?.macAddress)?.takeIf { it.isNotBlank() && it != "02:00:00:00:00:00" && !it.equals("00:90:4C:11:22:33", true) }
-    ?: applicationContext.getSystemService<WifiManager>()?.configuredNetworks?.firstOrNull { it.status == WifiConfiguration.Status.CURRENT }?.let {
-        if (atLeastQ && (atLeastT && it.macRandomizationSetting != WifiConfiguration.RANDOMIZATION_NONE)) it.randomizedMacAddress.toOuiString() else it.BSSID
+    else if (atLeastM) { { listOf("/sys/class/net/wlan0/address", "/sys/class/net/eth0/address").map { Path(it) }.filter { it.exists() }.firstNotNullOfOrNull { it.readText().trim() } }.catchReturnNull() }
+    else {{ listOf("ro.boot.wifimac", "persist.vendor.wifi.mac", "ro.wifi.mac").map { getSystemPropertyWithFallback(it, "") }.firstOrNull { it.isNotBlank() } }.catchReturnNull()
+        ?: getWifiConnectionInfo()?.macAddress ?: { execCommand("ip link show wlan0")?.bufferedReader()?.use { reader -> reader.readLine().split("link/ether").takeIf { it.size > 2 }?.getOrNull(1)?.trim()?.split(" ")?.firstOrNull() } }.catchReturnNull()
+        ?: { Path("/data/misc/wifi/config").readLines().firstOrNull { it.contains("cur_etheraddr") }?.substringAfter("=")?.trim() }.catchReturnNull() })?.takeIf { it.isNotBlank() && it != "02:00:00:00:00:00" && !it.equals("00:90:4C:11:22:33", true) }
+    ?: wifiManager?.configuredNetworks?.firstOrNull { it.status == WifiConfiguration.Status.CURRENT }?.let {
+        if ((atLeastT && it.macRandomizationSetting == WifiConfiguration.RANDOMIZATION_NONE) || buildBetween(
+                Build.VERSION_CODES.Q, Build.VERSION_CODES.S_V2)) it.randomizedMacAddress.toOuiString() else it.BSSID
     }.orEmpty()
 }.catchEmpty()
 
@@ -253,4 +260,4 @@ private fun ByteArray?.formatMac(): String? = {
     takeIf { this?.size == 6 }?.toHexString(HexFormat { bytes.byteSeparator = ":" })
 }.catchReturnNull()
 
-val UNKNOWN_SSID = if(atLeastR) WifiManager.UNKNOWN_SSID else "<unknown ssid>"
+val UNKNOWN_SSID = if (atLeastR) WifiManager.UNKNOWN_SSID else "<unknown ssid>"

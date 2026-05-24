@@ -146,13 +146,13 @@ suspend fun Context.getOAID(): String? = when {
         getSystemService<KeyguardManager>()?.let { manager -> (KeyguardManager::class.java.getDeclaredAccessibleMethod("obtainOaid").invoke(manager, emptyArray<Any>()) as String?)
             .takeIf { KeyguardManager::class.java.getDeclaredAccessibleMethod("isSupported").invoke(it, emptyArray<Any>()) == true } }
     }
-    getSystemProperty("ro.build.uiversion")?.isNotBlank() == true -> withContext(noExceptionContext) {
+    getSystemProperty("ro.build.uiversion").isNotBlank() -> withContext(noExceptionContext) {
         packageManager.getPackageInfoCompat("com.qiku.id")?.let { info ->
             processIBinderFromOAIDService(Intent("qiku.service.action.id").setPackage(info.packageName)) {
                 val iter = OAIDInterface.QikuID(it)
                 iter.getID().takeIf { iter.isSupport }
             }
-        }?.takeIf { it.isNotBlank() } ?: getSystemProperty("ro.build.uiversion").takeIf { it?.contains("360UI", true) == true }?.let {
+        }?.takeIf { it.isNotBlank() } ?: getSystemProperty("ro.build.uiversion").takeIf { it.contains("360UI", true) }?.let {
             getClassOrNull("android.os.ServiceManager")?.let { clazz ->
                 (clazz.getDeclaredAccessibleMethod("getService", String::class.java).invoke(null, "qikuid") as IBinder?).let { ibinder ->
                     OAIDInterface.QikuID(ibinder, true).let { iter -> iter.getID().takeIf { iter.isSupport } }
@@ -161,7 +161,7 @@ suspend fun Context.getOAID(): String? = when {
         }
     }
     objectListOf("LENOVO", "MOTOROLA").any { Build.MANUFACTURER.equals(it,true) } || Build.FINGERPRINT.contains("VIBEUI_V2") ||
-        getSystemPropertyWithFallback("ro.build.version.incremental")?.contains("VIBEUI_V2") == true -> withContext(noExceptionContext) {
+            getSystemPropertyWithFallback("ro.build.version.incremental").contains("VIBEUI_V2") -> withContext(noExceptionContext) {
         processIBinderFromOAIDService(Intent().setClassName("com.zui.deviceidservice", "com.zui.deviceidservice.DeviceidService")) {
             val iter = OAIDInterface.LENID(it)
             iter.getID(1, packageName).takeIf { iter.isSupport }
@@ -201,11 +201,11 @@ suspend fun Context.getOAID(): String? = when {
             }
         }
     }
-    Build.MANUFACTURER.equals("VIVO", true) || getSystemProperty("ro.vivo.os.version")?.isNotBlank() == true -> withContext(noExceptionContext) {
+    Build.MANUFACTURER.equals("VIVO", true) || getSystemProperty("ro.vivo.os.version").isNotBlank() -> withContext(noExceptionContext) {
         contentResolver.queryAll("content://com.vivo.vms.IdProvider/IdentifierId/OAID".toUri()).use { it.getSingleString("value")
             .takeIf { getSystemProperty("persist.sys.identifierid.supported", "0") == "1" } }
     }
-    objectListOf("XIAOMI", "BLACKSHARK").any { Build.MANUFACTURER.equals(it, true) } || getSystemProperty("ro.miui.ui.version.name")?.isNotBlank() == true -> withContext(noExceptionContext) {
+    objectListOf("XIAOMI", "BLACKSHARK").any { Build.MANUFACTURER.equals(it, true) } || getSystemProperty("ro.miui.ui.version.name").isNotBlank() -> withContext(noExceptionContext) {
         // IdentifierManager.getOAID(this@getOAID)
         getClassOrNull("com.android.id.impl.IdProviderImpl")?.let {
             it.getAccessibleMethod("getOAID", Context::class.java).invoke(it.getAccessibleConstructor(true)?.newInstance(), this@getOAID) as String?
