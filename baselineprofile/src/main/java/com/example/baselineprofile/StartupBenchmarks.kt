@@ -82,16 +82,7 @@ class StartupBenchmarks {
             measureBlock = {
                 startActivityAndWait()
 
-                device.wait(Until.hasObject(By.res("fully_drawn_marker")), 5_000)
-
-                // TODO Add interactions to wait for when your app is fully drawn.
-                // The app is fully drawn when Activity.reportFullyDrawn is called.
-                // For Jetpack Compose, you can use ReportDrawn, ReportDrawnWhen and ReportDrawnAfter
-                // from the AndroidX Activity library.
-
-                // Check the UiAutomator documentation for more information on how to
-                // interact with the app.
-                // https://d.android.com/training/testing/other-components/ui-automator
+                device.wait(Until.hasObject(By.textContains("申请权限")), 5_000)
             }
         )
     }

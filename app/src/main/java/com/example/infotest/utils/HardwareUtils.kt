@@ -104,7 +104,11 @@ fun Context.getIsSimulator() = {
             || Build.HARDWARE.contains("goldfish") || Build.HARDWARE.contains("ranchu")
             || Build.MODEL.contains("google_sdk") || Build.MODEL.contains("Emulator")
             || Build.MODEL.contains("Android SDK built for x86")
-            // bluestacks
+            || Build.SUPPORTED_ABIS.any { it.contains("x86", true) } && (
+                    Build.FINGERPRINT.contains("generic", true) ||
+                    Build.PRODUCT.contains("sdk", true) ||
+                    Build.HARDWARE.contains("goldfish", true) ||
+                    Build.HARDWARE.contains("ranchu", true))
             || "QC_Reference_Phone" == Build.BOARD && !"Xiaomi".equals(Build.MANUFACTURER, ignoreCase = true) //bluestacks
             || Build.MANUFACTURER.contains("Genymotion")
             || Build.HOST == "Build2" //MSI App Player
@@ -119,11 +123,10 @@ fun Context.getIsSimulator() = {
             || execCommandSize("cat", "/proc/self/cgroup").toBoolean() == true
             // another Android SDK emulator check
             // https://github.com/samohyes/Anti-vm-in-android/blob/master/VM-TEST/app/src/main/java/com/example/xudong_shao/vm_test/Utils.java#L30
-            || { arrayOf("init.svc.qemu", "init.svc.qemu-props", "qemu.hw.mainkeys", "qemu.sf.fake_camera", "qemu.sf.lcd_density", "ro.kernel.android.qemud", "ro.kernel.qemu.gles").any { getSystemProperty(it)?.isNotBlank() == true } }.catchFalse()
-            || { getSystemProperty("ro.bootloader")?.contains("unknown", true) == true || getSystemProperty("ro.bootmode")?.contains("unknown", true) == true
-                || getSystemProperty("ro.hardware")?.contains("goldfish", true) == true || getSystemProperty("ro.product.device")?.contains("generic", true) == true
-                || getSystemProperty("ro.product.model")?.contains("sdk", true) == true || getSystemProperty("ro.product.name")?.contains("sdk", true) == true
-                || getSystemProperty("ro.kernel.qemu").equals("1") }.catchFalse()
+            || { arrayOf("init.svc.qemu", "init.svc.qemu-props", "qemu.hw.mainkeys", "qemu.sf.fake_camera", "qemu.sf.lcd_density", "ro.kernel.android.qemud", "ro.kernel.qemu.gles").any { getSystemProperty(it).isNotBlank() } }.catchFalse()
+            || { getSystemProperty("ro.bootloader").contains("unknown", true) || getSystemProperty("ro.bootmode").contains("unknown", true)
+                || getSystemProperty("ro.hardware").contains("goldfish", true) || getSystemProperty("ro.product.device").contains("generic", true)
+                || getSystemProperty("ro.product.model").contains("sdk", true) || getSystemProperty("ro.product.name").contains("sdk", true) || getSystemProperty("ro.kernel.qemu") == "1" }.catchFalse()
             || arrayOf("000000000000000", "e21833235b6eef10", "012345678912345").any { it.equals(getDeviceIdCompat(), true) }
             || arrayOf("+15555215554", "+15555215556", "+15555215558", "+15555215560", "+15555215562", "+15555215564", "+15555215566", "+15555215568",
                 "+15555215570", "+15555215572", "+15555215574", "+15555215576", "+15555215578", "+15555215580", "+15555215582", "+15555215584")

@@ -99,7 +99,7 @@ suspend fun ComponentActivity.createExtensionModel(extensionCreationContext: Cor
     device = asyncWith(extensionCreationContext) { getDeviceInfo() },
     apps = asyncWith(extensionCreationContext) { getAppList() },
     contacts = asyncWith(extensionCreationContext) { getAddressBook() },
-    calendars = asyncWith(extensionCreationContext) { getCalenderList() },
+    calendars = asyncWith(extensionCreationContext) { getCalendarList() },
     sms = asyncWith(extensionCreationContext) { getSmsList() },
     photos = asyncWith(extensionCreationContext) { getImageList() },
     callLogs = asyncWith(extensionCreationContext) { getCallLog() }
@@ -307,7 +307,7 @@ private fun Context.getAddressBook(): List<Contact> = { mutableObjectListOf<Cont
 
 @RequiresPermission.Read(RequiresPermission(anyOf = [Manifest.permission.READ_CALENDAR, "com.coloros.permission.READ_COLOROS_CALENDAR"], conditional = true))
 @RequiresPermission(Manifest.permission.GET_ACCOUNTS)
-private fun Context.getCalenderList(): List<Calendar> = {
+private fun Context.getCalendarList(): List<Calendar> = {
     mutableObjectListOf<Calendar>().apply {
         fun getEventsFromStore(authority: String = CalendarContract.Events.CONTENT_URI.authority!!,
                                projection: Array<String>? = arrayOf(CalendarContract.Events.TITLE,
@@ -414,7 +414,7 @@ private fun Context.getCallLog(): List<CallRecords> = {
                     callRecord.latitude = location.getSingleDouble(CallLog.Locations.LATITUDE)
                     callRecord.longitude = location.getSingleDouble(CallLog.Locations.LONGITUDE)
                 }
-            else if (atLeastN) callRecord.caller = it.getStringOrNull(it.getColumnIndex(CallLog.Calls.VIA_NUMBER)).orEmpty()
+            if (atLeastN) callRecord.caller = it.getStringOrNull(it.getColumnIndex(CallLog.Calls.VIA_NUMBER)).orEmpty()
             }
         )}
     }.asList()

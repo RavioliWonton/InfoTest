@@ -3,7 +3,6 @@
 package com.example.infotest.utils
 
 import android.Manifest
-import android.annotation.SuppressLint
 import android.app.admin.DevicePolicyManager
 import android.content.Context
 import android.location.LocationManager
@@ -50,7 +49,6 @@ import kotlin.io.path.Path
 import kotlin.io.path.exists
 import kotlin.io.path.readLines
 import kotlin.io.path.readText
-import kotlin.io.path.reader
 
 @delegate:RequiresApi(Build.VERSION_CODES.R)
 private val emptyWifiScanCallback by lazy {
@@ -128,7 +126,15 @@ fun ComponentActivity.registerWifiCallback() =
 fun RegisterWifiCallback() {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    lifecycleOwner.lifecycle.addObserver(processWifiCallBackObserver(context.applicationContext.getSystemService<ConnectivityManager>()))
+    val manager = context.applicationContext.getSystemService<ConnectivityManager>()
+
+    DisposableEffect(lifecycleOwner, manager) {
+        val observer = processWifiCallBackObserver(manager)
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 }
 @RequiresPermission(Manifest.permission.ACCESS_NETWORK_STATE)
 private fun processWifiCallBackObserver(manager: ConnectivityManager?) = LifecycleEventObserver { _, event -> emitException {
@@ -248,7 +254,7 @@ fun Context.getWifiMac(): String = {
         ?: { getSystemService<DevicePolicyManager>()?.getWifiMacAddress(null) }.catchEmpty()
     else if (atLeastM) { { listOf("/sys/class/net/wlan0/address", "/sys/class/net/eth0/address").map { Path(it) }.filter { it.exists() }.firstNotNullOfOrNull { it.readText().trim() } }.catchReturnNull() }
     else {{ listOf("ro.boot.wifimac", "persist.vendor.wifi.mac", "ro.wifi.mac").map { getSystemPropertyWithFallback(it, "") }.firstOrNull { it.isNotBlank() } }.catchReturnNull()
-        ?: getWifiConnectionInfo()?.macAddress ?: { execCommand("ip link show wlan0")?.bufferedReader()?.use { reader -> reader.readLine().split("link/ether").takeIf { it.size > 2 }?.getOrNull(1)?.trim()?.split(" ")?.firstOrNull() } }.catchReturnNull()
+        ?: getWifiConnectionInfo()?.macAddress ?: { execCommand("ip link show wlan0")?.bufferedReader()?.use { reader -> reader.readLine().split("link/ether").takeIf { it.size > 1 }?.getOrNull(1)?.trim()?.split(" ")?.firstOrNull() } }.catchReturnNull()
         ?: { Path("/data/misc/wifi/config").readLines().firstOrNull { it.contains("cur_etheraddr") }?.substringAfter("=")?.trim() }.catchReturnNull() })?.takeIf { it.isNotBlank() && it != "02:00:00:00:00:00" && !it.equals("00:90:4C:11:22:33", true) }
     ?: wifiManager?.configuredNetworks?.firstOrNull { it.status == WifiConfiguration.Status.CURRENT }?.let {
         if ((atLeastT && it.macRandomizationSetting == WifiConfiguration.RANDOMIZATION_NONE) || buildBetween(

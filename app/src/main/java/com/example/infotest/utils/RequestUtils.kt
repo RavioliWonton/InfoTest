@@ -190,19 +190,23 @@ private suspend fun String.getResponseBufferCronet(method: String, headers: Map<
 private suspend fun String.getResponseBufferHttpUrlConnection(method: String, headers: Map<String, String>, data: ByteArray? = null) =
     withContext(Dispatchers.IO) {
         with(URL(this@getResponseBufferHttpUrlConnection).openConnection() as HttpsURLConnection) {
-            doInput = true
-            doOutput = data != null
-            defaultUseCaches = false
-            requestMethod = method
-            instanceFollowRedirects = true
+            try {
+                doInput = true
+                doOutput = data != null
+                defaultUseCaches = false
+                requestMethod = method
+                instanceFollowRedirects = true
 
-            headers.forEach { addRequestProperty(it.key, it.value) }
-            data?.let { outputStream.write(it) }
+                headers.forEach { addRequestProperty(it.key, it.value) }
+                data?.let { outputStream.write(it) }
 
-            connect()
+                connect()
 
-            if (responseCode == HttpsURLConnection.HTTP_OK)
-                return@withContext Buffer().apply { write(inputStream.readBytes()) }.also { disconnect() }
-            else throw IOException(errorStream.readBytes().decodeToString().also { disconnect() })
+                if (responseCode in 200..299)
+                    return@withContext Buffer().apply { write(inputStream.readBytes()) }
+                else throw IOException(errorStream?.readBytes()?.decodeToString())
+            } finally {
+                disconnect()
+            }
         }
     }

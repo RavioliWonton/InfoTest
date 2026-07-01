@@ -1,8 +1,12 @@
 package com.example.baselineprofile
 
+import android.Manifest
+import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.benchmark.macro.junit4.BaselineProfileRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
+import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.Until
 import org.junit.Rule
@@ -32,7 +36,7 @@ import org.junit.runner.RunWith
 @LargeTest
 class BaselineProfileGenerator {
 
-    /*private val permissionArray = mutableListOf(
+    private val permissionArray = mutableListOf(
         Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE,
         Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION,
         Manifest.permission.READ_CONTACTS, Manifest.permission.READ_SMS, Manifest.permission.READ_CALL_LOG,
@@ -52,7 +56,7 @@ class BaselineProfileGenerator {
         *(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) tPermissionArray
         else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) qPermissionArray
         else permissionArray).toTypedArray()
-    )*/
+    )
 
     @get:Rule
     val rule = BaselineProfileRule()
@@ -71,16 +75,14 @@ class BaselineProfileGenerator {
             pressHome()
             startActivityAndWait()
 
-            device.wait(Until.hasObject(By.res("fully_drawn_marker")), 5_000)
+            // 等待首次 UI 出现
+            device.wait(Until.hasObject(By.textContains("抓取")), 10_000)
 
-            // TODO Write more interactions to optimize advanced journeys of your app.
-            // For example:
-            // 1. Wait until the content is asynchronously loaded
-            // 2. Scroll the feed content
-            // 3. Navigate to detail screen
+            // 等待进入抓取中
+            device.wait(Until.hasObject(By.textContains("正在抓取")), 15_000)
 
-            // Check UiAutomator documentation for more information how to interact with the app.
-            // https://d.android.com/training/testing/other-components/ui-automator
+            // 等待抓取完成，覆盖序列化和文件保存路径
+            device.wait(Until.hasObject(By.textContains("抓取完成")), 60_000)
         }
     }
 }

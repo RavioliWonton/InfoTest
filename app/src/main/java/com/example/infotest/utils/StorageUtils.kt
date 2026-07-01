@@ -92,13 +92,13 @@ private fun Context.getSDCardInfo() = mutableObjectListOf<SDCardInfo>().applyEmi
         val pathMethod = clazz.getAccessibleMethod("getPath")
         val isRemovableMethod = clazz.getAccessibleMethod("isRemovable")
         val volumeStateMethod = StorageManager::class.java.getAccessibleMethod("getVolumeState", String::class.java)
-        StorageManager::class.java.getAccessibleMethod("getVolumeList").invoke(sm, emptyArray<Any>())?.let {
+        StorageManager::class.java.getAccessibleMethod("getVolumeList").invoke(sm)?.let {
             val length = java.lang.reflect.Array.getLength(it)
             for (i in 0 until length) {
                 val storageVolumeElement = java.lang.reflect.Array.get(it, i)
-                val path = pathMethod.invoke(storageVolumeElement, emptyArray<Any>()) as String
-                add(SDCardInfo(Paths.get(path), volumeStateMethod.invoke(sm, path) as String,
-                    isRemovableMethod.invoke(storageVolumeElement, emptyArray<Any>()) as Boolean))
+                val path = pathMethod.invoke(storageVolumeElement) as? String
+                add(SDCardInfo(Paths.get(path), (volumeStateMethod.invoke(sm, path) as? String).orEmpty(),
+                    isRemovableMethod.invoke(storageVolumeElement) as? Boolean ?: false))
             }
         }
     }
@@ -140,7 +140,7 @@ fun Context.getStoragePair() = runCatching {
         }
     } else {
         val getPathMethod = getClassOrNull("android.os.storage.StorageVolume")?.getDeclaredAccessibleMethod("getPath")
-        StorageManager::class.java.getDeclaredAccessibleMethod("getVolumeList").invoke(storageManager, emptyArray<Any>())?.let {
+        StorageManager::class.java.getDeclaredAccessibleMethod("getVolumeList").invoke(storageManager)?.let {
             (0 until java.lang.reflect.Array.getLength(it))
                 .map { index -> java.lang.reflect.Array.get(it, index) }
                 .fold(0L to 0L) { (total, free), element ->
@@ -159,4 +159,4 @@ fun Context.getStoragePair() = runCatching {
 private val StorageVolume.directoryCompat: Path?
     @Suppress("DiscouragedPrivateApi")
     get() = { Paths.get(if (atLeastR) directory?.absolutePath
-    else javaClass.getDeclaredAccessibleMethod("getPath").invoke(this, emptyArray<Any>()) as? String).normalize() }.catchReturnNull()
+    else javaClass.getDeclaredAccessibleMethod("getPath").invoke(this) as? String).normalize() }.catchReturnNull()

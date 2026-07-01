@@ -27,6 +27,7 @@ import androidx.annotation.RequiresApi
 import androidx.collection.MutableObjectList
 import androidx.collection.ObjectList
 import androidx.collection.emptyObjectList
+import androidx.collection.mutableObjectListOf
 import androidx.collection.objectListOf
 import androidx.core.app.ActivityOptionsCompat
 import androidx.core.content.ContextCompat
@@ -35,6 +36,8 @@ import com.google.android.gms.time.TrustedTimeClient
 import kotlinx.coroutines.tasks.await
 import org.xmlpull.v1.XmlPullParser
 import splitties.init.appCtx
+import java.io.FilterInputStream
+import java.io.InputStream
 import java.lang.reflect.Constructor
 import java.lang.reflect.Executable
 import java.lang.reflect.Field
@@ -68,7 +71,7 @@ object Constants {
 @Suppress("UNCHECKED_CAST")
 private object SettingCache {
     val SECURE_SET by lazy {
-        { getClassOrNull($$"android.provider.Settings$Global")?.let {
+        { getClassOrNull($$"android.provider.Settings$System")?.let {
             it.getAccessibleField("MOVED_TO_SECURE", true)?.get(it) as? HashSet<String>
         } }.catchReturnNull()
     }
@@ -85,22 +88,20 @@ private object SettingCache {
 }
 
 val ApplicationInfo.minSdkVersionCompat: Int
-    get() = if (atLeastN) minSdkVersion else {
-        { appCtx.assets.use { assetManager ->
-            assetManager.openXmlResourceParser(assetManager.javaClass.getAccessibleMethod("addAssetPath", String::class.java)
-                .invoke(assetManager, publicSourceDir) as Int, "AndroidManifest.xml").use {
-                    while (it.next() != XmlPullParser.END_DOCUMENT) {
-                        if (it.eventType == XmlPullParser.START_TAG && it.name.equals("uses-sdk"))
-                            for (i in 0 until it.attributeCount) {
-                                if (it.getAttributeNameResource(i) == android.R.attr.minSdkVersion || "minSdkVersion" == it.getAttributeName(i))
-                                    it.getAttributeIntValue(i, -1)
-                            }
-                    }
-                    -1
+    get() = if (atLeastN) minSdkVersion else runCatching {
+         appCtx.assets.use { assetManager ->
+            (assetManager.javaClass.getAccessibleMethod("addAssetPath", String::class.java)
+                .invoke(assetManager, publicSourceDir) as? Int)?.let { cookie ->
+                assetManager.openXmlResourceParser(cookie, "AndroidManifest.xml").use { parser ->
+                    if (generateSequence { parser.next() }.takeWhile { it != XmlPullParser.END_DOCUMENT }
+                        .any { parser.eventType == XmlPullParser.START_TAG && parser.name.equals("uses-sdk") })
+                        (0 until parser.attributeCount).firstOrNull { parser.getAttributeNameResource(it) == android.R.attr.minSdkVersion ||
+                                "minSdkVersion" == parser.getAttributeName(it) }?.let { parser.getAttributeIntValue(it, -1) } ?: -1
+                    else -1
                 }
             }
-        }.catchReturn(-1)
-    }
+        }
+    }.getOrNull() ?: -1
 
 
 @Suppress("ObsoleteSdkInt")
@@ -133,6 +134,8 @@ val atLeastU = buildBetween(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
 val atLeastV = buildBetween(Build.VERSION_CODES.VANILLA_ICE_CREAM)
 @ChecksSdkIntAtLeast(Build.VERSION_CODES.BAKLAVA)
 val atLeastB = buildBetween(Build.VERSION_CODES.BAKLAVA)
+@ChecksSdkIntAtLeast(Build.VERSION_CODES.CINNAMON_BUN)
+val atLeastC = buildBetween(Build.VERSION_CODES.CINNAMON_BUN)
 // Has no effect
 @CheckResult
 @ChecksSdkIntAtLeast
@@ -217,6 +220,8 @@ fun Parcel.writeAny(value: Any?) {
         is Long -> writeLong(value)
         is Float -> writeFloat(value)
         is Double -> writeDouble(value)
+        is Byte -> writeByte(value)
+        is Short -> writeInt(value.toInt())
         is Char -> writeInt(value.code)
         is String -> writeString(value)
         is Boolean -> ParcelCompat.writeBoolean(this, value)
@@ -226,9 +231,10 @@ fun Parcel.writeAny(value: Any?) {
         is FloatArray -> writeFloatArray(value)
         is DoubleArray -> writeDoubleArray(value)
         is BooleanArray -> writeBooleanArray(value)
+        is CharArray -> writeCharArray(value)
         is Array<*> -> if (value.firstOrNull() is Parcelable) writeTypedArray(value as? Array<Parcelable>, 0) else writeArray(value)
         is Bundle -> writeBundle(value)
-        is Binder -> writeBinderArray(arrayOf(value))
+        is IBinder -> writeStrongBinder(value)
         is List<*> -> if (value.firstOrNull() is Parcelable) writeTypedList(value as? List<Parcelable>) else writeList(value)
         is Map<*, *> -> writeMap(value)
         is Parcelable -> writeParcelable(value, 0)
@@ -236,6 +242,7 @@ fun Parcel.writeAny(value: Any?) {
     }
 }
 fun List<Any?>.paramTypes(): List<Class<*>> = map { it?.javaType ?: String::class.java }
+fun ObjectList<Any?>.paramTypes(): ObjectList<Class<*>> = this.mapNotNull { it?.javaType ?: String::class.java }
 
 @Suppress("IntentWithNullActionLaunch")
 inline fun <reified T : Activity> Context.startActivityCompat(
@@ -263,6 +270,27 @@ inline fun <reified T> ObjectList<T>.all(predicate: (T) -> Boolean): Boolean {
     forEach { if (!predicate(it)) return false }
     return true
 }
+@OptIn(ExperimentalContracts::class)
+inline fun <reified T, reified R : Any> ObjectList<T>.mapNotNull(transform: (T) -> R?): ObjectList<R> {
+    contract { callsInPlace(transform); returnsNotNull() }
+    val destination = mutableObjectListOf<R>()
+    forEach { element -> transform(element)?.let { destination.add(it) } }
+    return destination
+}
+@OptIn(ExperimentalContracts::class)
+inline fun <reified T, reified R : Any> ObjectList<T>.firstNotNullOfOrNull(transform: (T) -> R?): R? {
+    contract { callsInPlace(transform) }
+    forEach { element -> transform(element)?.let { return it } }
+    return null
+}
+private val contentField by lazy { runCatching { ObjectList::class.java.getAccessibleField("content", true) }.getOrNull() }
+@Suppress("UNCHECKED_CAST")
+internal inline fun <reified T> ObjectList<T>.toTypedArray(): Array<T> = runCatching {
+    val original = contentField?.get(this) as Array<T>
+    val result = arrayOfNulls<T>(size)
+    System.arraycopy(original, 0, result, 0, size)
+    return@runCatching result as Array<T>
+}.getOrDefault(asList().toTypedArray())
 /*class ObjectListAdapter<T>(private val elementAdapter: JsonAdapter<T>) {
     @ToJson
     fun toJson(list: ObjectList<T>?) = list?.joinToString(separator = ", ", prefix = "[",
@@ -349,10 +377,10 @@ fun Class<*>.getAccessibleConstructor(isDeclared: Boolean = false, vararg parame
     (if (isDeclared) getDeclaredConstructor(*parameterTypes) else getConstructor(*parameterTypes)).apply { setAccessibleSafely() }
 
 fun IBinder.getTransactionIdViaReflection(name: String): Int = {
-    javaClass.enclosingClass?.getAccessibleField(name, true)?.get(this) as Int?
+    javaClass.enclosingClass?.getAccessibleField(name, true)?.get(this) as? Int
 }.catchZero()
 fun IBinder.getInterfaceDescriptorViaReflection(): String = {
-    javaClass.getDeclaredAccessibleMethod("getInterfaceDescriptor").invoke(this, emptyArray<Any>()) as String?
+    javaClass.getDeclaredAccessibleMethod("getInterfaceDescriptor").invoke(this) as? String
 }.catchEmpty()
 
 fun hasSystemProperty(key: String) = { getClassOrNull("android.os.SystemProperties")?.getAccessibleMethod("find", String::class.java)?.invoke(null, key) != null }.catchFalse()
@@ -361,9 +389,23 @@ fun getSystemProperty(key: String, defaultValue: String = "") = { getClassOrNull
 fun getSystemPropertyWithFallback(key: String, defaultValue: String = "") = getSystemProperty(key, defaultValue).takeIf { it.isNotBlank() }
     ?: { execCommand("getprop $key")?.use { it.bufferedReader().readLine() } }.catchReturn(defaultValue)
 
+private class ProcessInputStream(
+    private val process: java.lang.Process
+) : FilterInputStream(process.inputStream) {
+    override fun close() {
+        runCatching { super.close() }
+        runCatching { process.errorStream.close() }
+        runCatching { process.outputStream.close() }
+        runCatching { process.destroy() }
+    }
+}
+
 @SafeVarargs
-fun execCommand(command: String, vararg arguments: String = emptyArray(), environment: Array<String> = emptyArray()) = {
-    Runtime.getRuntime().exec(arrayOf("sh", command).plus(arguments), environment).inputStream
+fun execCommand(command: String, vararg arguments: String = emptyArray(), environment: Array<String> = emptyArray()): InputStream? = {
+    ProcessInputStream((arguments.takeIf { it.isNotEmpty() }?.let { ProcessBuilder(command, *it) } ?: ProcessBuilder("sh", "-c", command))
+        .redirectErrorStream(true).applyEmitException { environment().putAll(environment.map { it.substringBefore('\u0000') }.mapNotNull { entry ->
+            entry.indexOf('=').takeIf { it > 0 }?.let { entry.substring(0, it) to entry.substring(it + 1) }
+        }.toMap()) }.start())
 }.catchReturnNull()
 @SafeVarargs
 fun execCommandSize(command: String, vararg arguments: String = emptyArray()) = {

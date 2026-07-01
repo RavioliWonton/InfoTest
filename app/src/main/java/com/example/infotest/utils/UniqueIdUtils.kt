@@ -37,6 +37,7 @@ import kotlinx.coroutines.channels.trySendBlocking
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import splitties.init.appCtx
 import kotlin.contracts.ExperimentalContracts
 import kotlin.contracts.InvocationKind
@@ -255,7 +256,7 @@ private suspend fun Context.processIBinderFromOAIDService(intent: Intent, iface:
         override fun onServiceDisconnected(name: ComponentName?) = Unit
     }
     if (bindService(intent, connection, if (atLeastU) Context.BIND_ABOVE_CLIENT or Context.BIND_AUTO_CREATE else Context.BIND_AUTO_CREATE)) try {
-        return iface.invoke(queue.receiveCatching().getOrThrow())
+        return withTimeoutOrNull(3.seconds) { iface.invoke(queue.receiveCatching().getOrThrow()) }
     } catch (e: Exception) { e.printStackTrace() } finally {
         unbindService(connection)
         queue.close()

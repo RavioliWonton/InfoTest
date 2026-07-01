@@ -23,6 +23,7 @@ import androidx.activity.ComponentActivity
 import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
 import androidx.annotation.WorkerThread
+import androidx.collection.ObjectList
 import androidx.collection.objectListOf
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -79,13 +80,13 @@ private fun getTelephonyStubClass(isViaTelephony: Boolean) = getClassOrNull(
     if (isViaTelephony) $$"com.android.internal.telephony.ITelephony$Stub"
     else $$"com.android.internal.telephony.IPhoneSubInfo$Stub")
 private fun getTelephonyServiceName(isViaTelephony: Boolean) = if (isViaTelephony) Context.TELEPHONY_SERVICE else "iphonesubinfo"
-private fun getTelephonyTransactionCode(isViaTelephony: Boolean, methodSignatureAndActions: List<Triple<String, List<Class<*>>?, (Parcel.() -> Unit)?>>) =
+private fun getTelephonyTransactionCode(isViaTelephony: Boolean, methodSignatureAndActions: ObjectList<Triple<String, ObjectList<Class<*>>?, (Parcel.() -> Unit)?>>) =
     { methodSignatureAndActions.mapNotNull { (methodName, paramTypes, action) -> Triple((getTelephonyStubClass(isViaTelephony)?.getAccessibleField("TRANSACTION_$methodName")?.get(null) as? Int)
-        ?.takeIf { getTelephonyServiceBinder(isViaTelephony)?.javaClass?.hasMethod(true, methodName, *paramTypes?.toTypedArray().orEmpty()) == true } ?: return@mapNotNull null, paramTypes, action) } }.catchReturnNull()
+        ?: return@mapNotNull null, paramTypes, action) } }.catchReturnNull()
 private fun getTelephonyServiceBinder(isViaTelephony: Boolean): IBinder? = { getClassOrNull("android.os.ServiceManager")
         ?.getDeclaredAccessibleMethod("getService", String::class.java)
         ?.invoke(null, getTelephonyServiceName(isViaTelephony)) as? IBinder }.catchReturnNull()
-private fun getTelephonyFieldViaTransaction(isViaTelephony: Boolean, methodSignatureAndActions: List<Triple<String, List<Class<*>>?, (Parcel.() -> Unit)?>>): String? = {
+private fun getTelephonyFieldViaTransaction(isViaTelephony: Boolean, methodSignatureAndActions: ObjectList<Triple<String, ObjectList<Class<*>>?, (Parcel.() -> Unit)?>>): String? = {
     getTelephonyServiceBinder(isViaTelephony)?.let {
         getTelephonyTransactionCode(isViaTelephony, methodSignatureAndActions)?.firstNotNullOfOrNull { (code, type, action) ->
             val data = Parcel.obtain()
@@ -102,7 +103,7 @@ private fun getTelephonyFieldViaTransaction(isViaTelephony: Boolean, methodSigna
             }
         }
     }}.catchReturnNull()
-private fun getTelephonyFieldViaBinder(isViaTelephony: Boolean, methodSignatureAndActions: List<Triple<String, List<Class<*>>?, (String) -> Array<Any?>>>): String? =
+private fun getTelephonyFieldViaBinder(isViaTelephony: Boolean, methodSignatureAndActions: ObjectList<Triple<String, ObjectList<Class<*>>?, (String) -> Array<Any?>>>): String? =
     { getTelephonyStubClass(isViaTelephony)?.getDeclaredAccessibleMethod("asInterface", IBinder::class.java)
         ?.invoke(null, getTelephonyServiceBinder(isViaTelephony))?.let {
             methodSignatureAndActions.firstNotNullOfOrNull { (methodName, paramTypes, argsSupplier) ->
@@ -111,10 +112,10 @@ private fun getTelephonyFieldViaBinder(isViaTelephony: Boolean, methodSignatureA
                 }.getOrNull()
             }
         } }.catchReturnNull()
-private fun Context.getTelephonyFieldViaReflection(isViaTelephony: Boolean, methodSignatureAndActions: List<Triple<String, List<Class<*>>?, (String) -> Array<Any?>>>): String? = {
+private fun Context.getTelephonyFieldViaReflection(isViaTelephony: Boolean, methodSignatureAndActions: ObjectList<Triple<String, ObjectList<Class<*>>?, (String) -> Array<Any?>>>): String? = {
     getSystemService<TelephonyManager>()?.let { TelephonyManager::class.java.getDeclaredAccessibleMethod(
         if (isViaTelephony) "getITelephony" else "getSubscriberInfo").invoke(it)
-        .takeIf { method -> method.javaClass.hasMethod(true, "asBinder") } }?.let {
+        .takeIf { serviceObj -> serviceObj.javaClass.hasMethod(true, "asBinder") } }?.let {
         methodSignatureAndActions.firstNotNullOfOrNull { (methodName, paramTypes, argsSupplier) ->
             runCatching {
                 it.javaClass.getDeclaredAccessibleMethod(methodName, *paramTypes?.toTypedArray().orEmpty())
@@ -123,7 +124,7 @@ private fun Context.getTelephonyFieldViaReflection(isViaTelephony: Boolean, meth
             }
         }
     }.catchReturnNull()
-private fun getTelephonyFieldThroughThreeTierFallback(context: Context = appCtx, methodSignature: List<Pair<String, List<Any?>>>): String? =
+private fun getTelephonyFieldThroughThreeTierFallback(context: Context = appCtx, methodSignature: ObjectList<Pair<String, ObjectList<Any?>>>): String? =
     getTelephonyFieldViaTransaction(true, methodSignature.mapNotNull { Triple(it.first.takeIf { name -> name.isNotBlank() } ?: return@mapNotNull null, it.second.paramTypes()) { it.second.forEach { value -> writeAny(value) } } }).takeIf { it?.isNotBlank() == true }
         ?: getTelephonyFieldViaTransaction(false, methodSignature.mapNotNull { Triple(it.first.takeIf { name -> name.isNotBlank() } ?: return@mapNotNull null, it.second.paramTypes()) { it.second.forEach { value -> writeAny(value) } } }).takeIf { it?.isNotBlank() == true }
         ?: getTelephonyFieldViaBinder(true, methodSignature.mapNotNull { Triple(it.first.takeIf { name -> name.isNotBlank() } ?: return@mapNotNull null, it.second.paramTypes()) { _ -> it.second.toTypedArray() } }).takeIf { it?.isNotBlank() == true }
@@ -201,7 +202,7 @@ private fun getDefaultSubscriptionIdThroughThreeFallback() =
 
 @RequiresPermission(Manifest.permission.READ_PHONE_STATE)
 fun Context.getDefaultSubscriptionId() = getSystemService<TelephonyManager>()?.let(TelephonyManagerCompat::getSubscriptionId)?.takeIf { it != Int.MAX_VALUE } ?:
-    if (atLeastN) { { SubscriptionManager.getDefaultSubscriptionId() }.catchReturn(SubscriptionManager.INVALID_SUBSCRIPTION_ID) }
+    if (atLeastN) runCatching { SubscriptionManager.getDefaultSubscriptionId() }.getOrDefault(SubscriptionManager.INVALID_SUBSCRIPTION_ID)
     else if (atLeastLM) getSystemService<SmsManager>()?.subscriptionId ?: getDefaultSubscriptionIdThroughThreeFallback() ?: -1
     else getDefaultSubscriptionIdThroughThreeFallback() ?: -1
 
@@ -214,7 +215,7 @@ fun TelephonyManager.getImeiCompat(slotIndex: Int): String? =
     else if (javaClass.hasMethod(true, "getDeviceId", Int::class.java)) {// TelephonyManagerCompat.getImei
         { javaClass.getDeclaredAccessibleMethod("getDeviceId", Int::class.java)
             .invoke(this, slotIndex) as String }.catchReturnNull(null, SecurityException::class.java)
-    } else getTelephonyFieldThroughThreeTierFallback(methodSignature = listOf("getDeviceIdForPhone" to listOf(slotIndex, appCtx.packageName)))
+    } else getTelephonyFieldThroughThreeTierFallback(methodSignature = objectListOf("getDeviceIdForPhone" to objectListOf(slotIndex, appCtx.packageName)))
 @Suppress("HardwareIds")
 @RequiresPermission(anyOf = [Manifest.permission.READ_PHONE_STATE, "android.permission.READ_PRIVILEGED_PHONE_STATE"], conditional = true)
 @Throws(SecurityException::class)
@@ -226,14 +227,14 @@ fun TelephonyManager.getImeiCompatViaSubscriptionId(subscriptionId: Int): String
             .invoke(this, SubscriptionManagerCompat.getSlotIndex(subscriptionId)) as String }.catchReturnNull(null, SecurityException::class.java)
     }
 @RequiresPermission(anyOf = [Manifest.permission.READ_PHONE_STATE, "android.permission.READ_PRIVILEGED_PHONE_STATE"], conditional = true)
-fun Context.getImeiWithSubId(subscriptionId: Int) = getTelephonyFieldThroughThreeTierFallback(methodSignature = listOf("getImeiForSubscriber" to listOf(subscriptionId, packageName)))
+fun Context.getImeiWithSubId(subscriptionId: Int) = getTelephonyFieldThroughThreeTierFallback(methodSignature = objectListOf("getImeiForSubscriber" to objectListOf(subscriptionId, packageName)))
 
-fun String.isIMEIValid() = isNotBlank() && !contentEquals("null") && !all { it == '0' } && length in 14..16
+fun String.isIMEIValid() = isNotBlank() && !contentEquals("null") && !all { it == '0' } && length in 14..16 && all(Char::isDigit)
 
 // https://github.com/happylishang/AntiFakerAndroidChecker/tree/master/antifake/src/main/java/com/snail/antifake/deviceid/deviceid
 @RequiresPermission(anyOf = [Manifest.permission.READ_PHONE_STATE, "android.permission.READ_PRIVILEGED_PHONE_STATE"], conditional = true)
 fun Context.getDeviceIdCompat(): String = {
-    getTelephonyFieldThroughThreeTierFallback(this, listOf("getDeviceId" to listOf(packageName), "getDeviceId" to listOf())).orEmpty().ifBlank {
+    getTelephonyFieldThroughThreeTierFallback(this, objectListOf("getDeviceId" to objectListOf(packageName), "getDeviceId" to objectListOf())).orEmpty().ifBlank {
         getDeviceIdViaSystemProperty().ifBlank { getSystemService<TelephonyManager>()?.let {
             if (packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY_GSM) ||
                 !atLeastQ && packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY_CDMA))
@@ -256,8 +257,8 @@ fun Context.getPhoneNumber() = {
     (if (atLeastT) getSystemService<SubscriptionManager>()?.getPhoneNumber(getDefaultSubscriptionId())
     else if (atLeastLM) getSystemService<SubscriptionManager>()?.getActiveSubscriptionInfo(getDefaultSubscriptionId())?.number
     else getSystemService<TelephonyManager>()?.line1Number)?.takeIf { getSystemService<TelephonyManager>()?.simState?.equals(TelephonyManager.SIM_STATE_READY) == true }
-        ?: getTelephonyFieldThroughThreeTierFallback(this, listOf("getLine1NumberForSubscriber" to listOf(getDefaultSubscriptionId()),
-            "getLine1Number" to listOf(packageName), "getMsisdnForSubscriber" to listOf(getDefaultSubscriptionId()), "getMsisdn" to listOf(packageName)))
+        ?: getTelephonyFieldThroughThreeTierFallback(this, objectListOf("getLine1NumberForSubscriber" to objectListOf(getDefaultSubscriptionId()),
+            "getLine1Number" to objectListOf(packageName), "getMsisdnForSubscriber" to objectListOf(getDefaultSubscriptionId()), "getMsisdn" to objectListOf(packageName)))
 }.catchEmpty()
 
 @WorkerThread
@@ -293,7 +294,7 @@ fun Int?.determineDataNetworkType(subNetworkTypeName: String? = null): String = 
 fun Context.getDbmCompat() = { getSystemService<TelephonyManager>()?.allCellInfo?.lastDbmCompat }.catchReturn(-1)
 
 val Collection<CellInfo?>.lastDbmCompat: Int
-    get() = { mapNotNull {
+    get() = { asSequence().mapNotNull {
         when {
             atLeastR -> it?.cellSignalStrength
             it is CellInfoGsm -> it.cellSignalStrength
