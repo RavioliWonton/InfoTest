@@ -1,7 +1,7 @@
 //import org.jetbrains.kotlin.compose.compiler.gradle.ComposeFeatureFlag
 
+
 import org.jetbrains.kotlin.gradle.dsl.JvmDefaultMode
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
 
 plugins {
@@ -12,38 +12,40 @@ plugins {
     //alias libs.plugins.ksp
     alias libs.plugins.kotlin.serialization
     //alias libs.plugins.moshix
-    alias libs.plugins.ben.manes.versions
-    alias libs.plugins.dexcount
+    //alias libs.plugins.dexcount
     //alias libs.plugins.android.retrofix
     alias libs.plugins.androidx.baselineprofile
+    id 'io.github.ben-manes.versions' version '0.66.0'
     id 'app.cash.licensee' version '1.14.1'
     id 'kotlin-parcelize'
     id 'project-report'
 }
 
 android {
-    compileSdk 37
+    compileSdk {
+        version = release(37) {
+            it.minorApiLevel = 2
+        }
+    }
     buildToolsVersion = '37.0.0'
 
     defaultConfig {
         applicationId = 'com.example.infotest'
-        minSdk = 23
+        minSdk = 24
         targetSdk = 37
-        versionCode = 10
-        versionName = '2.0.0'
+        versionCode = 11
+        versionName = '2.0.1'
 
-        testInstrumentationRunner = 'androidx.test.runner.AndroidJUnitRunner'
         vectorDrawables.useSupportLibrary = true
-        androidResources.localeFilters += [ 'zh' ]
-
         ndk {
-            //noinspection ChromeOsAbiSupport
-            abiFilters += [ 'arm64-v8a'/*, 'x86_64'*/ ]
+            abiFilters 'arm64-v8a'
         }
+        androidResources.localeFilters += [ 'zh' ]
     }
 
     buildTypes {
         release {
+            testCoverageEnabled = true
             minifyEnabled = true
             shrinkResources = true
             proguardFiles += [ getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro' ]
@@ -60,8 +62,8 @@ android {
     compileOptions {
         incremental = true
         coreLibraryDesugaringEnabled = true
-        sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_21
+        sourceCompatibility = JavaVersion.VERSION_25
+        targetCompatibility = JavaVersion.VERSION_25
     }
 
     buildFeatures.compose = true
@@ -83,6 +85,32 @@ android {
         jacocoVersion = '0.8.13'
     }
 
+    testOptions {
+        unitTests {
+            includeAndroidResources = true
+            // Robolectric needs access to JDK internals (JDK 17+); SDK 36+ also touches
+            // FileDescriptor via jdk.internal.access.SharedSecrets.
+            all {
+                it.jvmArgs(
+                    '--add-exports=java.base/jdk.internal.access=ALL-UNNAMED',
+                    '--add-opens=java.base/java.io=ALL-UNNAMED',
+                    '--add-opens=java.base/java.lang=ALL-UNNAMED',
+                    '--add-opens=java.base/java.lang.reflect=ALL-UNNAMED',
+                    '--add-opens=java.base/java.util=ALL-UNNAMED',
+                    '--add-opens=java.base/java.net=ALL-UNNAMED',
+                    '--add-opens=java.base/java.nio=ALL-UNNAMED',
+                    '--add-opens=java.base/sun.nio.ch=ALL-UNNAMED'
+                )
+            }
+        }
+    }
+
+    androidComponents {
+        beforeVariants(selector().all()) {
+            enableUnitTest = true
+        }
+    }
+
     lint {
         abortOnError = false
         checkAllWarnings = true
@@ -99,6 +127,10 @@ licensee {
     allow('EPL-1.0')
     allowDependency('com.github.instacart', 'truetime-android', '4.0.0.alpha') {
         because 'Apache-2.0, but stupid plugin does not recognize'
+    }
+    ignoreDependencies('org.chromium.net') {
+        transitive = true
+        because 'Android Studio License and Chromium License'
     }
     ignoreDependencies('com.google.android.gms') {
         transitive = true
@@ -170,7 +202,7 @@ dependencies {
     // Tencent could use basic location service without key.
     implementation libs.tencentLocationSdk
     implementation libs.pointlocation6709
-    //implementation libs.apache.commons.lang3
+    implementation libs.apache.commons.lang3
     implementation libs.kotlinx.coroutines.android
     implementation libs.kotlinx.coroutines.play.services
     implementation libs.kotlinx.serialization.json.okio
@@ -178,19 +210,27 @@ dependencies {
     //implementation libs.byteunits
     implementation libs.conscrypt.android
     testImplementation libs.junit
+    testImplementation libs.robolectric
+    testImplementation libs.androidx.test.core
+    testImplementation libs.androidx.test.ext.junit
     implementation libs.androidx.tracing.ktx
-    androidTestImplementation libs.androidx.test.junit
-    androidTestImplementation libs.androidx.test.espresso.core
-    androidTestImplementation libs.androidx.compose.ui.test.junit4
     debugImplementation libs.androidx.compose.ui.tooling
     debugImplementation libs.androidx.compose.ui.test.manifest
 }
 
+// Robolectric ships a host-native Conscrypt; the Android AAR only contains Android ABIs and makes
+// Robolectric's TLS setup fail with UnsatisfiedLinkError: no conscrypt_jni in java.library.path.
+configurations.configureEach {
+    if (name.endsWith('UnitTestRuntimeClasspath')) {
+        exclude group: 'org.conscrypt', module: 'conscrypt-android'
+    }
+}
+
 kotlin {
     compilerOptions {
-        //jvmTarget = JvmTarget.JVM_21
-        languageVersion = KotlinVersion.KOTLIN_2_5
-        apiVersion = KotlinVersion.KOTLIN_2_5
+        //jvmTarget = JvmTarget.JVM_25
+        languageVersion = KotlinVersion.KOTLIN_2_6
+        apiVersion = KotlinVersion.KOTLIN_2_6
         javaParameters = true
         progressiveMode = true
         jvmDefault = JvmDefaultMode.NO_COMPATIBILITY
@@ -200,9 +240,6 @@ kotlin {
 }
 
 tasks.named("dependencyUpdates") {
-    doFirst {
-        gradle.startParameter.parallelProjectExecutionEnabled = false
-    }
     configure {
         checkConstraints = true
         checkBuildEnvironmentConstraints = true

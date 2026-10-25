@@ -103,21 +103,22 @@ fun MutableObjectList<ImageInfo>.processCursor(cursor: Cursor?, contentResolver:
         else ParcelFileDescriptor.open(Path(it).toAbsolutePath().toFile(), ParcelFileDescriptor.MODE_READ_ONLY)
     } }.catchReturnNull()
     fun MediaMetadataRetriever.getDate() = {
-        ZonedDateTime.parse(extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE),
+        ZonedDateTime.parse(extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE).orEmpty(),
             DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss")).toInstant().toEpochMilli().toString()
     }.catchReturnNull({
-        ZonedDateTime.parse(extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE),
+        ZonedDateTime.parse(extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE).orEmpty(),
             DateTimeFormatter.ofPattern("yyyy MM dd")).toInstant().toEpochMilli().toString()
     }.catchReturnNull())
     val name = cursor?.getColumnIndex(MediaStore.Images.ImageColumns.DISPLAY_NAME) ?: return@emitException
     val add = cursor.getColumnIndex(MediaStore.Images.ImageColumns.DATE_ADDED)
     val modified = cursor.getColumnIndex(MediaStore.Images.ImageColumns.DATE_MODIFIED)
     val taken = cursor.getColumnIndex(MediaStore.Images.ImageColumns.DATE_TAKEN)
+    val type = cursor.getColumnIndex(MediaStore.Images.ImageColumns.MIME_TYPE)
 
-    while (cursor.moveToNext()) cursor.toInput()?.use { input ->
+    while (cursor.moveToNext() && ExifInterface.isSupportedMimeType(cursor.getStringOrNull(type).orEmpty())) cursor.toInput()?.use { input ->
         val retriever = { MediaMetadataRetriever().apply { setDataSource(input.fileDescriptor) } }.catchReturnNull()
         val exif = { ExifInterface(input.fileDescriptor) }.catchReturnNull()
-        val (width, height) = {
+        val [width, height] = {
             if (atLeastQ) retriever?.extractMetadata(MediaMetadataRetriever.METADATA_KEY_IMAGE_WIDTH) to
                     retriever?.extractMetadata(MediaMetadataRetriever.METADATA_KEY_IMAGE_HEIGHT)
             else BitmapFactory.Options().apply { inJustDecodeBounds = true }.also { BitmapFactory.decodeFileDescriptor(input.fileDescriptor, null, it) }

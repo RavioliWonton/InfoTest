@@ -70,7 +70,7 @@ fun GetLocationAsyncComposable(isAccuracy: Boolean = false, isUsingGoogleService
     if (PermissionChecker.checkSelfPermission(context, if (isAccuracy) Manifest.permission.ACCESS_FINE_LOCATION
         else Manifest.permission.ACCESS_COARSE_LOCATION) != PermissionChecker.PERMISSION_GRANTED) return
     val lifecycleOwner = rememberUpdatedState(newValue = LocalLifecycleOwner.current)
-    DisposableEffect(key1 = lifecycleOwner) {
+    DisposableEffect(key1 = lifecycleOwner, callback) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_START) activity?.setup(isAccuracy, isUsingGoogleService, isUsingTencent, callback)
             if (event == Lifecycle.Event.ON_STOP) activity?.unSetUp(callback)

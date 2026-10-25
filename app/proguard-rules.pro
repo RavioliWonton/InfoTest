@@ -21,8 +21,14 @@
 -renamesourcefileattribute SourceFile
 
 # from Missing Rule
+-dontwarn com.oplus.os.OplusBuild
 -dontwarn com.android.org.conscrypt.SSLParametersImpl
 -dontwarn org.apache.harmony.xnet.provider.jsse.SSLParametersImpl
+
+# from https://developer.android.com/reference/kotlin/androidx/compose/runtime/ComposeRuntimeFlags#isLinkBufferComposerEnabled()
+-assumevalues public class androidx.compose.runtime.ComposeRuntimeFlags {
+    static boolean isLinkBufferComposerEnabled() return true;
+}
 
 # for HMS OAID
 -keep class com.huawei.hms.ads.** { *; }

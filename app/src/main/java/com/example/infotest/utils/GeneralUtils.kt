@@ -11,7 +11,6 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.BaseBundle
-import android.os.Binder
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
@@ -145,7 +144,7 @@ fun atLeastExtension(@IntRange(Build.VERSION_CODES.R.toLong(), SdkExtensions.AD_
 
 infix fun <T> Boolean.then(param: T): T? = if (this) param else null
 fun Boolean?.toInt(): Int? = (this != null).then((this == true).then(1) ?: 0)
-fun Int?.toBoolean(): Boolean? = (this != null).then((this!! > 0).then(true) == true)
+fun Int?.toBoolean(): Boolean? = this?.let { it > 0 }
 
 @OptIn(ExperimentalContracts::class)
 inline fun emitException(vararg neededThrowExceptions: Class<out Exception> = emptyArray(), block: () -> Unit) {

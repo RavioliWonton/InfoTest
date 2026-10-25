@@ -39,7 +39,6 @@ import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asExecutor
 import splitties.init.appCtx
-import kotlin.collections.listOf
 
 @Suppress("unused")
 @RequiresApi(Build.VERSION_CODES.Q)
@@ -60,7 +59,7 @@ fun GetCellInfoComposeAsync(callback: (MutableList<CellInfo>) -> Unit) {
     val lifecycleOwner = rememberUpdatedState(newValue = LocalLifecycleOwner.current)
     val context = LocalContext.current
     if (PermissionChecker.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PermissionChecker.PERMISSION_GRANTED) return
-    DisposableEffect(key1 = lifecycleOwner) {
+    DisposableEffect(key1 = lifecycleOwner, callback) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_START && atLeastQ)
                 context.getSystemService<TelephonyManager>()?.requestCellInfoUpdate(Dispatchers.IO.asExecutor(), object : TelephonyManager.CellInfoCallback() {
@@ -281,8 +280,8 @@ fun Int?.determineDataNetworkType(subNetworkTypeName: String? = null): String = 
     TelephonyManager.NETWORK_TYPE_TD_SCDMA, TelephonyManager.NETWORK_TYPE_EVDO_A,
     TelephonyManager.NETWORK_TYPE_UMTS, TelephonyManager.NETWORK_TYPE_EVDO_0,
     TelephonyManager.NETWORK_TYPE_HSDPA, TelephonyManager.NETWORK_TYPE_HSUPA,
-    TelephonyManager.NETWORK_TYPE_EVDO_B, TelephonyManager.NETWORK_TYPE_EHRPD,
-    TelephonyManager.NETWORK_TYPE_HSPAP -> "3g"
+    TelephonyManager.NETWORK_TYPE_HSPA, TelephonyManager.NETWORK_TYPE_EVDO_B,
+    TelephonyManager.NETWORK_TYPE_EHRPD, TelephonyManager.NETWORK_TYPE_HSPAP -> "3g"
     TelephonyManager.NETWORK_TYPE_IWLAN, TelephonyManager.NETWORK_TYPE_LTE -> "4g"
     TelephonyManager.NETWORK_TYPE_NR -> "5g"
     else -> objectListOf("TD-SCDMA", "WCDMA", "CDMA2000").any {

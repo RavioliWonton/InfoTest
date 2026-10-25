@@ -91,7 +91,7 @@
         android:enableOnBackInvokedCallback="true"
         tools:replace="android:allowBackup"
         android:theme="@style/Theme.InfoTest"
-        tools:targetApi="tiramisu">
+        tools:targetApi="cinnamon_bun">
         <activity
             android:name=".MainActivity"
             android:exported="true"

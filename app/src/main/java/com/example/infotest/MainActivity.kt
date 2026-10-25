@@ -18,6 +18,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ComposeRuntimeFlags
+import androidx.compose.runtime.ExperimentalComposeApi
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -61,14 +63,14 @@ class MainActivity : ComponentActivity() {
     )
     @RequiresApi(Build.VERSION_CODES.Q)
     private val qPermissionArray = permissionArray.plusElement(Manifest.permission.ACCESS_MEDIA_LOCATION)
-        .minusElement(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        .minusElement(Manifest.permission.WRITE_EXTERNAL_STORAGE).toMutableList()
     @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     private val tPermissionArray = qPermissionArray.plus(arrayOf(Manifest.permission.READ_MEDIA_AUDIO,
         Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO,
-        Manifest.permission.POST_NOTIFICATIONS)).minusElement(Manifest.permission.READ_EXTERNAL_STORAGE)
+        Manifest.permission.POST_NOTIFICATIONS)).minusElement(Manifest.permission.READ_EXTERNAL_STORAGE).toMutableList()
     private val geocoder by lazy { Geocoder(this) }
 
-    @OptIn(ExperimentalPermissionsApi::class)
+    @OptIn(ExperimentalPermissionsApi::class, ExperimentalComposeApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         /*if (isNetworkAvailable())
@@ -82,6 +84,7 @@ class MainActivity : ComponentActivity() {
                         override fun clear() { timeMMKV.clearAll() }
                     }).withNtpHost("ntp2.nim.ac.cn").initialize()
             }*/
+        ComposeRuntimeFlags.isLinkBufferComposerEnabled = true
         setContent {
             enableEdgeToEdge()
             var text by remember { mutableStateOf("申请权限") }
@@ -95,16 +98,17 @@ class MainActivity : ComponentActivity() {
                 ) {
                     Greeting(name = text)
                     if (!isStartingFetch) {
-                        val permissions = if (atLeastT) tPermissionArray
+                        val permissions = (if (atLeastT) tPermissionArray
                             else if (atLeastQ) qPermissionArray
-                            else permissionArray
-                        // https://open.oppomobile.com/new/developmentDoc/info?id=12059
-                        if (isColorOS()) permissions.plusElement("com.coloros.permission.READ_COLOROS_CALENDAR")
-                        // https://dev.mi.com/xiaomihyperos/documentation/detail?pId=1619
-                        /*if (packageManager.getPermissionInfo("com.android.permission.GET_INSTALLED_APPS", 0)?.packageName == "com.lbe.security.miui" ||
-                        // https://dev.vivo.com.cn/documentCenter/doc/747#
-                            Settings.Secure.getInt(contentResolver, "oem_installed_apps_runtime_permission_enable", 0) > 0)
-                            permissions.plusElement("com.android.permission.GET_INSTALLED_APPS")*/
+                            else permissionArray).apply {
+                                // https://open.oppomobile.com/new/developmentDoc/info?id=12059
+                                if (isColorOS()) add("com.coloros.permission.READ_COLOROS_CALENDAR")
+                                // https://dev.mi.com/xiaomihyperos/documentation/detail?pId=1619
+                                /*if (packageManager.getPermissionInfo("com.android.permission.GET_INSTALLED_APPS", 0)?.packageName == "com.lbe.security.miui" ||
+                                // https://dev.vivo.com.cn/documentCenter/doc/747#
+                                    Settings.Secure.getInt(contentResolver, "oem_installed_apps_runtime_permission_enable", 0) > 0)
+                                    add("com.android.permission.GET_INSTALLED_APPS")*/
+                            }
                         val permission =
                             rememberMultiplePermissionsState(permissions = permissions) { result ->
                                 result.filter { it.value }.takeUnless { it.isNotEmpty() }
@@ -161,10 +165,10 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun Greeting(name: String) {
+fun Greeting(name: String, modifier: Modifier = Modifier) {
     Column(verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
+        modifier = modifier
             .systemGesturesPadding()
             .fillMaxSize()) {
         Text(text = name,
